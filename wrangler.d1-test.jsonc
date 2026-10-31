@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "itad-d1-i4-test",
+  "main": "tests/d1-worker.ts",
+  "compatibility_date": "2026-10-27",
+  "workers_dev": false,
+  "preview_urls": false,
+  "send_metrics": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "itad-i4-test",
+      "database_id": "00000000-0000-4000-8000-000000000001"
+    }
+  ]
+}

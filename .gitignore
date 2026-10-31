@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.wrangler/
+.dev.vars*
+.env*
+coverage/
+*.log
+wrangler.production.local.jsonc
+*.oauth-envelope.sql
+*.oauth-envelope.json
+itad-openapi.json

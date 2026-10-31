@@ -1,0 +1,25 @@
+{
+  "name": "itad-telegram-mock-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "dev": "wrangler dev --local --ip 127.0.0.1",
+    "test": "vitest run",
+    "test:d1": "node tests/d1.integration.mjs",
+    "test:cron": "node tests/cron.integration.mjs",
+    "oauth:operator": "node scripts/oauth-provision.mjs",
+    "db:local:migrate": "wrangler d1 migrations apply itad-local-integration --local --config wrangler.local-integration.jsonc",
+    "dev:cron": "wrangler dev --local --ip 127.0.0.1 --test-scheduled --config wrangler.local-integration.jsonc",
+    "typecheck": "tsc --noEmit",
+    "dry-run": "wrangler deploy --dry-run --outdir dist",
+    "dry-run:prod": "wrangler deploy --dry-run --config wrangler.production.jsonc --outdir dist/production",
+    "check:prod": "node scripts/check-production.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0",
+    "wrangler": "^4.45.0"
+  }
+}
