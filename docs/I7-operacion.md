@@ -139,29 +139,40 @@ function Invoke-PrivateTelegram {
     $Error.Clear()
   }
 }
-$info = Invoke-PrivateTelegram -Method getWebhookInfo -Payload @{}
-if ($info.result.url) { throw 'Bot con webhook existente: parar; no borrarlo automaticamente.' }
-$info = $null
-$marker = 'I8-' + [guid]::NewGuid().ToString('N')
-$marker  # Solo marcador publico: enviar este texto a SU bot en Telegram.
+```
+
+Pegar cada bloque siguiente completo. El envoltorio `. { }` conserva las
+variables en la consola y hace que un `throw` detenga todo el bloque aunque
+PowerShell 5.1/PSReadLine reciba el pegado linea a linea.
+
+```powershell
+. {
+  $info = Invoke-PrivateTelegram -Method getWebhookInfo -Payload @{}
+  if ($info.result.url) { throw 'Bot con webhook existente: parar; no borrarlo automaticamente.' }
+  $info = $null
+  $marker = 'I8-' + [guid]::NewGuid().ToString('N')
+  $marker  # Solo marcador publico: enviar este texto a SU bot en Telegram.
+}
 ```
 
 Despues de enviar el marcador, una sola consulta, sin bucle ni long polling:
 
 ```powershell
-$updates = Invoke-PrivateTelegram -Method getUpdates -Payload @{ timeout = 0; limit = 100; allowed_updates = @('message') }
-$matches = @($updates.result | Where-Object {
-  $_.message.text -ceq $marker -and
-  $_.message.chat.type -ceq 'private' -and
-  $_.message.chat.id -eq $_.message.from.id -and
-  $_.message.from.is_bot -eq $false
-})
-if ($matches.Count -ne 1) { throw 'No hay un unico mensaje propio: parar y revisar, no elegir el primer ID.' }
-$chatId = [string]$matches[0].message.chat.id
-if ($chatId -notmatch '^[1-9]\d{0,15}$' -or [decimal]$chatId -gt 4503599627370496) { throw 'Chat privado no valido.' }
-$chatId  # Mostrar SOLO localmente para introducirlo en el prompt de secret put.
-$updates = $null
-$matches = $null
+. {
+  $updates = Invoke-PrivateTelegram -Method getUpdates -Payload @{ timeout = 0; limit = 100; allowed_updates = @('message') }
+  $found = @($updates.result | Where-Object {
+    $_.message.text -ceq $marker -and
+    $_.message.chat.type -ceq 'private' -and
+    $_.message.chat.id -eq $_.message.from.id -and
+    $_.message.from.is_bot -eq $false
+  })
+  $updates = $null
+  if ($found.Count -ne 1) { throw 'No hay un unico mensaje propio: parar y revisar, no elegir el primer ID.' }
+  $chatId = [string]$found[0].message.chat.id
+  $found = $null
+  if ($chatId -notmatch '^[1-9]\d{0,15}$' -or [decimal]$chatId -gt 4503599627370496) { throw 'Chat privado no valido.' }
+  $chatId  # Mostrar SOLO localmente para introducirlo en el prompt de secret put.
+}
 ```
 
 No usar `offset`, no confirmar/borrar updates, no iniciar sondeo continuo. Si
@@ -282,6 +293,13 @@ no es un sandbox endurecido. Capability y endpoints caducan a los 15 minutos;
 una interrupcion abrupta podria dejar el proceso local hasta su salida, pero
 rechaza operaciones pasado ese limite. Tras Ctrl+C, confirmar que Wrangler cerro
 antes de reintentar.
+La carpeta temporal `%TEMP%\itad-oauth-*` se borra al terminar, con reintentos,
+porque en Windows `workerd` puede bloquear unos segundos su estado SQLite local.
+Si aun asi no se puede borrar, la herramienta muestra
+`oauth_operator_warning:temp_cleanup_incomplete`: es solo un aviso y no cambia el
+resultado ya impreso. Borrar esas carpetas cuando Wrangler haya cerrado. Las
+versiones anteriores a esta correccion mostraban en ese caso
+`oauth_operator_failed:operation_failed` despues de una operacion confirmada.
 
 Un listener OAuth temporal se enlaza al callback exacto `127.0.0.1:8765`.
 `state`, verifier, authorization code, access/refresh tokens y clave se
@@ -359,12 +377,14 @@ Antes de automatismo, cron apagado. En la misma consola privada, funcion de
 seccion 3 y `$chatId` propio ya verificado, autorizar un mensaje de prueba:
 
 ```powershell
-$reply = Invoke-PrivateTelegram -Method sendMessage -Payload @{ chat_id = $chatId; text = 'Prueba autorizada I9: transporte Telegram, no oferta ITAD.' }
-if ($reply.result.chat.type -cne 'private' -or [string]$reply.result.chat.id -cne $chatId -or $reply.result.message_id -lt 1) {
-  throw 'Recibo no verificado: revisar chat antes de cualquier reintento.'
+. {
+  $reply = Invoke-PrivateTelegram -Method sendMessage -Payload @{ chat_id = $chatId; text = 'Prueba autorizada I9: transporte Telegram, no oferta ITAD.' }
+  if ($reply.result.chat.type -cne 'private' -or [string]$reply.result.chat.id -cne $chatId -or $reply.result.message_id -lt 1) {
+    throw 'Recibo no verificado: revisar chat antes de cualquier reintento.'
+  }
+  $reply = $null
+  'Prueba de transporte confirmada en chat privado configurado.'
 }
-'Prueba de transporte confirmada en chat privado configurado.'
-$reply = $null
 ```
 
 Comprobar visualmente recepcion una sola vez. No imprimir respuesta,

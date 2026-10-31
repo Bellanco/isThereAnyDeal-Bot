@@ -19,6 +19,19 @@ const ADMIN_LIFETIME_MS = 15 * 60_000;
 const ALLOWED_MODES = new Set(['initialize', 'reauthorize', 'recover', 'status']);
 let activeAdminStop;
 let activeAdminChild;
+let cleanupIncomplete = false;
+
+/** Cleanup never changes the reported outcome; a failure is only flagged as a warning. */
+export async function removeTemporaryDirectory(directory, remove = rm) {
+  try {
+    // On Windows workerd may hold its SQLite state briefly after Wrangler exits.
+    await remove(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    return true;
+  } catch {
+    cleanupIncomplete = true;
+    return false;
+  }
+}
 
 process.on('exit', () => {
   if (activeAdminChild?.exitCode === null) activeAdminChild.kill();
@@ -264,7 +277,7 @@ async function startRemoteAdmin(production) {
   } catch {
     capability = '';
     if (activeAdminChild === child) activeAdminChild = undefined;
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTemporaryDirectory(tempRoot);
     fail('local_admin_start_failed');
   }
   let childFailed = false;
@@ -335,7 +348,7 @@ async function startRemoteAdmin(production) {
     });
     capability = '';
     if (activeAdminStop === stop) activeAdminStop = undefined;
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTemporaryDirectory(tempRoot);
   };
   activeAdminStop = stop;
   const readyUntil = Date.now() + ADMIN_TIMEOUT_MS;
@@ -581,7 +594,7 @@ async function operatorRun(args) {
     try {
       if (admin) await admin.stop();
     } finally {
-      if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
+      if (tempRoot) await removeTemporaryDirectory(tempRoot);
     }
   }
 }
@@ -664,5 +677,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const category = error instanceof OperatorError ? error.category : 'operation_failed';
     console.error(`oauth_operator_failed:${category}`);
     process.exitCode = 1;
+  } finally {
+    if (cleanupIncomplete) {
+      console.error('oauth_operator_warning:temp_cleanup_incomplete (borrar %TEMP%\\itad-oauth-* tras cerrar Wrangler)');
+    }
   }
 }

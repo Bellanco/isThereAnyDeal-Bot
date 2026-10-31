@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  parseArguments, productionAdminConfig, validAesKey,
+  parseArguments, productionAdminConfig, removeTemporaryDirectory, validAesKey,
 } from '../scripts/oauth-provision.mjs';
 
 const config = {
@@ -53,5 +53,18 @@ describe('OAuth operator CLI safety gates', () => {
     expect(generated.triggers).toBeUndefined();
     expect(generated.routes).toBeUndefined();
     expect(JSON.stringify(generated)).not.toMatch(/accessToken|refreshToken|OAUTH_TOKEN_KEY|TELEGRAM/);
+  });
+
+  it('retries locked temp cleanup and never turns a cleanup failure into an operation error', async () => {
+    const calls = [];
+    await expect(removeTemporaryDirectory('C:/tmp/itad-oauth-admin-x', async (dir, options) => {
+      calls.push([dir, options]);
+    })).resolves.toBe(true);
+    expect(calls).toEqual([['C:/tmp/itad-oauth-admin-x', {
+      recursive: true, force: true, maxRetries: 10, retryDelay: 200,
+    }]]);
+    await expect(removeTemporaryDirectory('C:/tmp/itad-oauth-admin-y', async () => {
+      throw Object.assign(new Error('locked'), { code: 'EBUSY' });
+    })).resolves.toBe(false);
   });
 });
