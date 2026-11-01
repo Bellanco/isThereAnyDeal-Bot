@@ -49,7 +49,7 @@ function checkParts(parts: string[]) {
     expect(part).not.toContain('Bundle ITAD');
     expect(part).not.toContain('publicado');
     if (parts.length > 1) expect(part.endsWith(`<footer>parte ${index + 1}/${parts.length}</footer>`)).toBe(true);
-    else expect(part).not.toContain('<footer>');
+    else expect(part).not.toMatch(/<footer>parte \d+\/\d+<\/footer>/);
     expectWellFormed(part);
   });
 }
@@ -59,8 +59,7 @@ describe('bundle message', () => {
     const html = only(formatBundle(notice(bundle({ note: 'Relanzado' }), [gid(1)], [gid(1), gid(2)])));
     expect(html).toBe(
       '<h3>Bundle de prueba</h3><p><b>Humble Bundle</b></p>' +
-      '<p>Nota de ITAD: Relanzado</p>' +
-      '<p>Caduca: 20:00 14-11-2026</p>' +
+      '<footer>Hasta 20:00 14-11-2026</footer>' +
       '<tg-button-row><tg-button type="url" style="success" url="https://example.invalid/bundle?ref=x&amp;a=1">Comprar bundle en Humble Bundle</tg-button></tg-button-row>' +
       `<tg-button-row><tg-button type="url" style="primary" url="${ITAD_PAGE}">Ver en ITAD</tg-button></tg-button-row>` +
       `<hr/><h4>Nivel 1 · ${PRICE}</h4>` +
@@ -120,13 +119,13 @@ describe('bundle message', () => {
   });
 
   describe('bundle data', () => {
-    it('escapes the title, store, note and game title as text', () => {
+    it('escapes the title, store and game title as text, without rendering the note', () => {
       const html = only(formatBundle(notice(bundle({
         title: 'A & B <c>', shop: 'Tom & Co', note: 'x < y & z',
         tiers: [tier([game(1, { title: 'Tom & <Jerry>' })])],
       }))));
       expect(html).toContain('<h3>A &amp; B &lt;c&gt;</h3><p><b>Tom &amp; Co</b></p>');
-      expect(html).toContain('<p>Nota de ITAD: x &lt; y &amp; z</p>');
+      expect(html).not.toMatch(/Nota de ITAD|x &lt; y &amp; z/);
       expect(html).toContain('>Tom &amp; &lt;Jerry&gt;</a>');
       expect(html).toContain('>Comprar bundle en Tom &amp; Co</tg-button>');
       checkParts([html]);
@@ -148,30 +147,38 @@ describe('bundle message', () => {
       expect(buttonUrls([html])).toEqual([STORE_URL]);
     });
 
-    it('shows the note and expiry when present, but omits adult metadata', () => {
+    it.each([null, '', 'Aviso', '* Bundle being relaunched...again and again.', 'x < y & z', 'Nota larga '.repeat(5000)]
+      .map((note, index) => ({ note, index })))(
+      'omits any note visually, preserving it internally (case $index)', ({ note }) => {
+      const input = notice(bundle({ note, mature: true }));
+      const before = structuredClone(input);
+      const html = only(formatBundle(input));
+      expect(input).toEqual(before);
+      expect(input.bundle.note).toBe(note);
+      expect(formatBundle(input)).toEqual(formatBundle(notice(bundle({ note: null, mature: true }))));
+      expect(html).not.toMatch(/Nota de ITAD|Tienda:|adultos|DLC|Paquete/);
+      expect(html).toContain('<footer>Hasta 20:00 14-11-2026</footer>');
+    });
+
+    it('omits null expiry without an empty label', () => {
       const plain = only(formatBundle(notice(bundle({ note: null, mature: false, expiry: null }))));
       expect(plain).not.toContain('Nota de ITAD');
       expect(plain).not.toContain('adultos');
-      expect(plain).not.toContain('Caduca');
-      const empty = only(formatBundle(notice(bundle({ note: '' }))));
-      expect(empty).not.toContain('Nota de ITAD');
-      const full = only(formatBundle(notice(bundle({ note: 'Aviso', mature: true }))));
-      expect(full).toContain('<p>Nota de ITAD: Aviso</p><p>Caduca: ');
-      expect(full).not.toMatch(/Tienda:|adultos|DLC|Paquete/);
+      expect(plain).not.toMatch(/Caduca|Hasta/);
     });
 
     it('formats only expiry in fixed Madrid time, never bundle publication', () => {
       const html = only(formatBundle(notice(bundle({ publish: '2026-12-31T23:30:00-02:00', expiry: '2027-01-01T00:00:00.999Z' }))));
-      expect(html).toContain('<p>Caduca: 01:00 01-01-2027</p>');
+      expect(html).toContain('<footer>Hasta 01:00 01-01-2027</footer>');
       expect(html).not.toContain('<tg-time');
       const noExpiry = only(formatBundle(notice(bundle({ expiry: null }))));
-      expect(noExpiry).not.toContain('Caduca:');
+      expect(noExpiry).not.toMatch(/Caduca|Hasta/);
       expect(formatBundle(notice(bundle({ publish: '2020-01-01T00:00:00Z' })))).toEqual(formatBundle(notice(bundle())));
     });
   });
 
   describe('tiers and games', () => {
-    it('numbers the tiers and shows the price, the missing price and the addon flag as received', () => {
+    it('numbers the tiers, omits null price and keeps known price/addon as received', () => {
       const html = only(formatBundle(notice(bundle({
         tiers: [
           tier([game(1)]),
@@ -180,15 +187,29 @@ describe('bundle message', () => {
         ],
       }))));
       expect(html).toContain(`<hr/><h4>Nivel 1 · ${PRICE}</h4>`);
-      expect(html).toContain('<hr/><h4>Nivel 2 · precio no indicado</h4>');
+      expect(html).toContain('<hr/><h4>Nivel 2</h4>');
       expect(html).toContain(`<hr/><h4>Nivel 3 · 12,50${NBSP}€ · addon</h4>`);
+      expect(html).not.toMatch(/precio no indicado|Gratis| · <\/h4>/);
       expect(html.indexOf('Nivel 1')).toBeLessThan(html.indexOf('Nivel 2'));
       expect(html.indexOf('Nivel 2')).toBeLessThan(html.indexOf('Nivel 3'));
     });
 
+    it.each([false, true])('omits a null price entirely, addon=%s, but keeps a numeric zero', addon => {
+      const input = notice(bundle({ tiers: [
+        tier([game(1)], { price: null, addon }),
+        tier([game(2)], { price: { amount: 0, amountInt: 0, currency: 'USD' } }),
+      ] }));
+      const before = structuredClone(input);
+      const html = only(formatBundle(input));
+      expect(html).toContain(`<h4>Nivel 1${addon ? ' · addon' : ''}</h4>`);
+      expect(html).toContain(`<h4>Nivel 2 · 0,00${NBSP}US$</h4>`);
+      expect(html).not.toMatch(/precio no indicado|Gratis| · <\/h4>/);
+      expect(input).toEqual(before);
+    });
+
     it('keeps a tier without games as a heading and a bundle without tiers as the head only', () => {
       const empty = only(formatBundle(notice(bundle({ tiers: [tier([game(1)]), tier([], { price: null })] }))));
-      expect(empty.endsWith('<hr/><h4>Nivel 2 · precio no indicado</h4>')).toBe(true);
+      expect(empty.endsWith('<hr/><h4>Nivel 2</h4>')).toBe(true);
       const none = only(formatBundle(notice(bundle({ tiers: [] }))));
       expect(none).not.toContain('<h4>');
       expect(none).toContain('<h3>Bundle de prueba</h3>');
@@ -239,6 +260,9 @@ describe('bundle message', () => {
       expect(parts[0]).toContain('<h3>Bundle de prueba</h3>');
       expect(parts.slice(1).join('')).not.toContain('<h3>');
       expect(buttonUrls(parts)).toEqual([STORE_URL, ITAD_PAGE]);
+      const content = parts.map(part => part.replace(/<footer>parte \d+\/\d+<\/footer>$/, '')).join('');
+      expect(content.match(/<footer>Hasta 20:00 14-11-2026<\/footer>/g)).toHaveLength(1);
+      expect(content).not.toContain('<footer>parte ');
       expect(parts[0]).toContain(`<h4>Nivel 1 · ${PRICE}</h4>`);
       for (const part of parts.slice(1)) {
         expect(part.startsWith(`<h4>Nivel 1 · ${PRICE} (continuación)</h4><p><a href=`)).toBe(true);
@@ -258,8 +282,13 @@ describe('bundle message', () => {
       expect(parts.length).toBeGreaterThan(2);
       checkParts(parts);
       const all = parts.join('');
+      expect(all).not.toMatch(/precio no indicado|Gratis| · <\/h4>/);
+      expect(buttonUrls(parts)).toEqual([STORE_URL, ITAD_PAGE]);
+      expect([...all.matchAll(/href="([^"]+)"/g)].map(match => match[1])).toEqual([
+        ...many(450), ...many(450, 1001), ...many(3, 2001),
+      ].map(game => `https://isthereanydeal.com/game/${game.slug}/`));
       expect(all.match(new RegExp(`<h4>Nivel 1 · ${PRICE}</h4>`, 'g'))).toHaveLength(1);
-      expect(all.match(/<h4>Nivel 2 · precio no indicado · addon<\/h4>/g)).toHaveLength(1);
+      expect(all.match(/<h4>Nivel 2 · addon<\/h4>/g)).toHaveLength(1);
       expect(all.match(new RegExp(`<h4>Nivel 3 · ${PRICE}</h4>`, 'g'))).toHaveLength(1);
       for (const part of parts) expect(part).not.toMatch(/<h4>[^<]*<\/h4>(<hr\/>|<footer>)/);
       for (const part of parts.slice(1)) {
@@ -283,7 +312,6 @@ describe('bundle message', () => {
 
     it.each([
       ['a game that does not fit in one message', { tiers: [tier([game(1, { title: 'x'.repeat(31_000) })])] }],
-      ['a note that does not fit in one message', { note: 'x'.repeat(31_000) }],
     ])('refuses to cut %s', (_name, overrides) => {
       expect(() => formatBundle(notice(bundle(overrides)))).toThrow(InputError);
       expect(() => formatBundle(notice(bundle(overrides)))).toThrow('rich_too_large');

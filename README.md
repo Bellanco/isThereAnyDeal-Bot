@@ -3,6 +3,11 @@
 Proyecto para recibir en Telegram las ofertas de la Waitlist de IsThereAnyDeal,
 sin utilizar el correo como intermediario.
 
+[Revisión pública de ejemplos oficiales y maqueta local (2026-11-01)](docs/ejemplos-oficiales-preview.md):
+fixtures contrastados con OpenAPI 2.11.0, sin cuenta ni envíos reales.
+Aclara la errata documental del feed: `/bundles/v1`, no `/bundles/v2`;
+el cliente ya usa la ruta correcta. No altera el historial de despliegue.
+
 ## Estado actual: Rich v4 desplegado y versión activa verificada
 
 ### Deploy autorizado Rich v4 — 2026-11-01
@@ -42,15 +47,17 @@ ejecutado en I7” describen fases históricas.
   mínimo histórico del juego con esa etiqueta, sin presentarlo como mínimo de
   tres meses. Los metadatos de tipo/adultos, DRM, plataformas, publicación y
   señales de mínimo de tienda se omiten por decisión del usuario.
-  Sin cabecera resumen ni pie técnico; solo `parte X/Y` en mensajes multipartes.
+  Sin cabecera resumen ni pie técnico; caducidad en footer nativo sin negrita
+  y `parte X/Y` solo en mensajes multipartes.
   Sin emojis ni tablas.
-- Bundles: feed oficial `/bundles/v2`, país **ES**, `mature=true`, cada **60 min**.
+- Bundles: feed oficial `/bundles/v1`, país **ES**, `mature=true`, cada **60 min**.
   No hay reglas oficiales de notificación de bundles: es un cruce separado del
   feed con la Waitlist, no una reinterpretación de los avisos oficiales.
-  Se preservan **todos los juegos y niveles**, nota, caducidad y enlaces;
+  Se preservan **todos los juegos y niveles**, caducidad y enlaces;
+  `bundle.note` permanece en datos/validación/persistencia, no en las tarjetas.
   marcas «en tu lista de deseos» y «en tu Colección». Cada juego enlaza a ITAD por su slug.
   Sin cabecera resumen ni pie con ID/publicación: de las fechas del bundle
-  solo se muestra caducidad, también en ofertas Waitlist.
+  solo se muestra caducidad en footer nativo sin negrita, también en ofertas Waitlist.
 - `ITAD_API_KEY` es un secreto **opcional**; sin key, `bundles: off`.
   Una sesión antigua con `notifications` sigue procesando avisos, sin banners.
   Reautorizar para `notifications wait_read coll_read`: `wait_read` permite
@@ -85,8 +92,11 @@ omite la señal S (mínimo de tienda).
 
 En bundles cada juego enlazado ocupa su propia línea y las marcas de lista de
 deseos/Colección van en la siguiente cuando existan, sin repetir el tipo de juego.
-Se preservan todos los juegos, niveles y enlaces. La nota oficial de ITAD se
-conserva sin heurísticas; solo la nota ficticia del fixture de preview es `null`.
+Se preservan todos los juegos, niveles y enlaces. La decisión anterior de mostrar
+notas oficiales queda reemplazada explícitamente por el ajuste local aprobado:
+**ninguna nota ITAD se dibuja en Rich bundles**, sin filtrar por su texto.
+`bundle.note` se conserva intacto en payload, validadores y persistencia;
+los fixtures oficiales no cambian.
 Entre las fechas del bundle solo aparece caducidad; sin cabecera resumen ni pie
 técnico salvo `parte X/Y`. Sin emojis, tablas ni contenido plegado.
 
@@ -100,6 +110,48 @@ La lista oficial consultada no enumera `<small>`: se usan `p`, títulos, `mark`
 solo para descuentos, `hr` y filas/botones Rich documentados. No se usa
 `tg-time` porque mostraría fechas localizadas por Telegram.
 
+### Ajustes aprobados del formatter — local, sin desplegar (2026-11-01)
+
+- `cut=0`: precio exacto, sin porcentaje, `mark` ni ` · ` sobrante;
+  `cut>0` conserva el formato anterior. Un precio cero sigue siendo numérico,
+  no se sustituye por «Gratis».
+- `historyLow=null`: sin comparativa ni etiqueta, salvo H/N oficial («Mínimo
+  histórico»). Si se conoce: `Mínimo histórico: X`, incluso cuando el precio
+  actual es mayor; no implica que el actual sea mínimo ni se infiere H/N.
+  Se mantiene la deduplicación de la primera H/N con histórico conocido y las
+  señales de otras ofertas; S sigue omitida.
+- Juego sin ofertas: título y enlace ITAD, sin precio inventado; se conserva
+  el histórico oficial numérico si existe. Nivel con `price:null`: solo
+  `Nivel N` y ` · addon` si corresponde, sin texto de precio.
+- Moneda/importe oficiales con `Intl es-ES currency` (p. ej. `87,96 US$`),
+  sin convertir a EUR por `country=ES`. Cupón/caducidad null se omiten.
+  Banner ausente o inseguro mantiene el HTML sin imagen; ante 400 con imagen
+  se conserva el fallback real existente, sin otra arquitectura.
+- Se preservan limpieza v4, notas reales, orden, juegos/ofertas/niveles y
+  URLs exactas (notas solo en datos), con `parte X/Y` cuando haga falta. No se añade regla de
+  caducadas, Gratis, selección/filtrado ni histórico de tres meses.
+- Caducidad de ofertas y bundles en una línea propia:
+  `<footer>Hasta hh:mm dd-mm-aaaa</footer>`, sin negrita, con el helper
+  compartido `expiryFooter` y `when` actual
+  (`Europe/Madrid`); si es `null`, no aparece línea ni etiqueta.
+  Ninguna nota ITAD en tarjetas de bundles; las fuentes oficiales íntegras
+  siguen disponibles fuera de las tarjetas del preview oficial.
+
+El contrato público actual admite [`footer`](https://core.telegram.org/bots/api#rich-html-style)
+como [bloque Rich independiente](https://core.telegram.org/bots/api#inputrichblockfooter).
+No exige que sea el último bloque ni documenta tamaño/color exactos. Se elige
+como información secundaria sin negrita; la maqueta lo representa menor, **no
+garantiza ese tamaño en Telegram**. No se envían `small`, `span` ni CSS.
+`sendRichMessage`, `html`/`skip_entity_detection`, imágenes independientes y
+botones success/primary contrastados con la fuente oficial; sin incompatibilidad
+que justifique cambiar el cliente. Aceptación y render reales **PENDIENTES de
+tu ejecución**, sin envíos ni despliegue en este ajuste.
+[Evidencia y QA](docs/ejemplos-oficiales-preview.md#caducidad-secundaria--footer-rich-nativo).
+
+QA y preview oficial offline actualizado:
+[reglas, comandos y resultados](docs/ejemplos-oficiales-preview.md#ajustes-aprobados-del-formatter--seguimiento-local).
+Este encargo no cambia la versión remota ni acredita render/entrega reales.
+
 Preview v4 autocontenido de esta sesión:
 `C:\Users\bella\.copilot\session-state\f5de483d-d716-4c23-bbf1-65bbeb7ce95e\files\telegram-preview-v4.html`.
 Incluye estos tres ejemplos producidos por los formatters reales, vista
@@ -110,7 +162,7 @@ no estilos CSS enviados a Telegram. Las fechas son texto fijo Madrid. No es
 captura ni prueba de render Telegram. Se conservan sin cambios los previews v2
 y v3. El generador visual fue temporal, no es un nuevo comando del proyecto.
 
-Medición local actual: ejemplos de una parte **537 / 1287 / 1101 bytes** y **9 / 26 / 21
+Medición local actual: ejemplos de una parte **537 / 1303 / 1109 bytes** y **9 / 26 / 21
 bloques**; la muestra original de **595 juegos × 2 ofertas** vuelve a dar **20 partes**,
 sin perder juegos, ofertas ni enlaces. La simulación ficticia usa esos mismos
 595 juegos con/sin banners en los índices probados.
@@ -129,8 +181,9 @@ cupón/caducidad sin banner, (3) bundle de tres niveles y ambas marcas.
 No pide tokens, lee configuración privada, accede a cloud ni hace red.
 HTML en un navegador **no es el render exacto de Telegram**.
 Los tres ejemplos usan el diseño Rich sin cabeceras resumen ni pies técnicos,
-con la nota ficticia del bundle ausente (`note: null`). La nota real se conserva
-en los avisos. Este ajuste está validado localmente, no desplegado por este encargo.
+con la nota ficticia del bundle ausente (`note: null`). Todas las notas ITAD se
+omiten visualmente; la nota real permanece en los datos internos.
+Este ajuste está validado localmente, no desplegado por este encargo.
 
 Solo el usuario, en un terminal privado y tras decidir autorizar esos tres envíos:
 

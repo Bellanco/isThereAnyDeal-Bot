@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_TEXT } from '../src/domain';
 import { HTTP_TIMEOUT_MS } from '../src/itad-http';
 import { MAX_RICH_BYTES } from '../src/rich';
+import { formatNotification } from '../src/notifications';
+import { parseWaitlistNotification } from '../src/validation';
+import detailFixture from './fixtures/notifications-waitlist-detail.json';
 import {
   parsePrivateChatId, RATE_LIMIT_FALLBACK_SECONDS, TelegramClient, TelegramConfigurationError, TelegramError,
 } from '../src/telegram';
@@ -219,6 +222,29 @@ describe('Telegram sendRichMessage contract', () => {
     await expect(new TelegramClient(transport, TOKEN, CHAT).sendRich(html))
       .rejects.toMatchObject({ category: 'transient', reason: 'http_5xx' });
     expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it('fallback of a real formatted notice is exactly the banner-less output, preserving every offer/link', async () => {
+    const notice = parseWaitlistNotification(detailFixture);
+    notice.games[0]!.deals.push({
+      ...structuredClone(notice.games[0]!.deals[0]!), cut: 50, flag: 'N',
+      url: 'https://example.invalid/buy?affiliate=keep%2Bme&x=1',
+    });
+    const decorated = formatNotification(notice, {
+      banners: new Map([[notice.games[0]!.id, 'https://example.invalid/banner.jpg']]),
+    })[0]!;
+    const plain = formatNotification(notice)[0]!;
+    const transport = vi.fn<(request: Request) => Promise<Response>>()
+      .mockResolvedValueOnce(badRequest())
+      .mockResolvedValueOnce(reply(success()));
+    await expect(new TelegramClient(transport, TOKEN, CHAT).sendRich(decorated)).resolves.toEqual({ messageId: 77 });
+    expect(transport).toHaveBeenCalledTimes(2);
+    const bodies = await Promise.all(transport.mock.calls.map(([request]) => request.json()));
+    expect(bodies).toEqual([decorated, plain].map(html => ({
+      chat_id: CHAT, rich_message: { html, skip_entity_detection: true },
+    })));
+    expect(plain).not.toMatch(/<img|<mark>-0%|Gratis/);
+    expect(plain).toContain('<mark>-50%</mark>');
   });
 
   it.each([

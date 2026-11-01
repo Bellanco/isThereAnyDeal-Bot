@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { InputError, type Price } from '../src/domain';
 import {
   attr, buttonRow, countBlocks, countImages, esc, gameUrl, money, pack, partLabel, RICH_BUDGET, safeImageUrl,
-  stripImages, utf8Length, when, type Frame, type Unit,
+  stripImages, utf8Length, when, expiryFooter, type Frame, type Unit,
 } from '../src/rich';
 import { expectWellFormed } from './rich-helpers';
 
@@ -62,6 +62,14 @@ describe('money', () => {
 });
 
 describe('when', () => {
+  it('uses a native standalone footer without bold or arbitrary size attributes, omitting null', () => {
+    expect(expiryFooter(null)).toBe('');
+    const html = expiryFooter('2024-03-21T23:59:59Z');
+    expect(html).toBe('<footer>Hasta 00:59 22-03-2024</footer>');
+    expect(countBlocks(html)).toBe(1);
+    expectWellFormed(html);
+  });
+
   it('formats a fixed Spain/Madrid date in winter and summer', () => {
     expect(when('2026-01-15T12:34:00Z')).toBe('13:34 15-01-2026');
     expect(when('2026-07-15T12:34:00Z')).toBe('14:34 15-07-2026');

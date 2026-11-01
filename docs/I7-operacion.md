@@ -95,13 +95,23 @@ ni cloud. Dry-run imprime HTML, no render exacto del cliente Telegram.
 El formato v4 incluido en la versión listada quita cabeceras resumen y pies técnicos en Rich;
 solo conserva `parte X/Y` en multipartes. Del bundle solo muestra caducidad;
 ofertas Waitlist también muestran solo caducidad, en Madrid `hh:mm dd-mm-aaaa`.
+El ajuste local posterior usa en ambas `<footer>Hasta hh:mm dd-mm-aaaa</footer>`,
+sin negrita, helper compartido `expiryFooter`/`when` Europe/Madrid existente;
+null no muestra bloque ni etiqueta. Footer es un bloque Rich oficial,
+no CSS/tamaño arbitrario. La maqueta lo aproxima menor y secundario, sin
+garantía de tamaño/color; aceptación/render reales **PENDIENTES de la
+ejecución del usuario** con el comando live de arriba.
 Omite DRM/plataformas, publicación, precios secundarios de tienda, precio anterior
 y señal de mínimo de tienda; conserva mínimo histórico del juego, sin inferir
 un mínimo trimestral. No cambia texto legado,
 IDs/recibos ni planes ya persistidos. No se ha desplegado este ajuste.
 Ejemplos: banner/precios/mínimo; varias tiendas/DLC/cupón/caducidad/adultos;
 bundle tres niveles/caducidad/Waitlist+Colección. La nota ficticia se quitó del
-ejemplo; las notas reales de ITAD se conservan por posibles condiciones. Títulos/tiendas inventados,
+ejemplo. La decisión anterior de conservar notas reales visualmente queda
+reemplazada explícitamente: ninguna nota ITAD se dibuja en Rich bundles;
+`bundle.note` se conserva en payload, validadores y persistencia. No cambia
+planes ya persistidos ni la versión remota; [verificación local y maquetas](ejemplos-oficiales-preview.md#caducidad-secundaria--footer-rich-nativo).
+Títulos/tiendas inventados,
 compras en example.com, enlaces ITAD por slugs ficticios que pueden no existir.
 Banner conocido HTTP 200 `https://placehold.co/600x280/2b3a55/ffffff/png?text=Nebula+Drifters`
 depende de tercero/Telegram; no se reconsultó. `--no-banner` lo omite.

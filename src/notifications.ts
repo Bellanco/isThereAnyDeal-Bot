@@ -1,5 +1,5 @@
 import { InputError, type Deal, type Game, type WaitlistNotification } from './domain';
-import { attr, buttonRow, esc, gameUrl, money, pack, safeImageUrl, when, type Frame, type Unit } from './rich';
+import { attr, buttonRow, esc, expiryFooter, gameUrl, money, pack, safeImageUrl, type Frame, type Unit } from './rich';
 import { parseWaitlistNotification } from './validation';
 
 /** Banner URL by game id, from the user's Waitlist. Optional decoration only. */
@@ -34,11 +34,11 @@ function gameSecondary(game: Game): string {
 function dealBlock(deal: Deal, showHistoryFlag: boolean): string {
   const offer = [
     deal.voucher && `Cupón: <code>${esc(deal.voucher)}</code>`,
-    deal.expiry !== null ? `Caduca: ${when(deal.expiry)}` : null,
   ].filter(present);
-  return `<h4>${esc(money(deal.price))} · <mark>-${deal.cut}%</mark></h4>` +
+  return `<h4>${esc(money(deal.price))}${deal.cut > 0 ? ` · <mark>-${deal.cut}%</mark>` : ''}</h4>` +
     `<p><b>${esc(deal.shop.name)}</b></p>` +
     offer.map(line => `<p>${line}</p>`).join('') +
+    expiryFooter(deal.expiry) +
     (showHistoryFlag && (deal.flag === 'H' || deal.flag === 'N') ? `<p>${FLAG_LABEL}</p>` : '');
 }
 

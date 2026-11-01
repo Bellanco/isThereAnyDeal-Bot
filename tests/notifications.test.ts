@@ -34,7 +34,7 @@ function checkParts(parts: string[], id: string) {
     expect(part).not.toContain(id);
     expect(part).not.toContain('Leído en ITAD');
     if (parts.length > 1) expect(part.endsWith(`<footer>parte ${index + 1}/${parts.length}</footer>`)).toBe(true);
-    else expect(part).not.toContain('<footer>');
+    else expect(part).not.toMatch(/<footer>parte \d+\/\d+<\/footer>/);
     expectWellFormed(part);
   });
 }
@@ -160,6 +160,54 @@ describe('official notification contracts I1', () => {
 });
 
 describe('notification formatter I1', () => {
+  it.each([
+    [0, 13.99, 'EUR'], [0, 0, 'EUR'], [0, 87.96, 'USD'],
+    [25, 87.96, 'USD'], [100, 0, 'EUR'],
+  ])('keeps exact price/currency with cut=%i, amount=%s %s', (cut, amount, currency) => {
+    const data = payload();
+    const deal = data.games[0]!.deals[0]!;
+    Object.assign(deal, { cut, price: { amount, amountInt: Math.round(amount * 100), currency } });
+    const before = structuredClone(data);
+    const html = body(formatNotification(data));
+    expect(html).toContain(`<h4>${money(deal.price)}${cut > 0 ? ` · <mark>-${cut}%</mark>` : ''}</h4>`);
+    if (cut === 0) expect(html).not.toMatch(/<mark>|-0%| · <\/h4>/);
+    expect(html).not.toContain('Gratis');
+    expect(html).not.toMatch(/Cupón:|Caduca:|Hasta/);
+    expect(data).toEqual(before);
+  });
+
+  it.each(['H', 'N', 'S', null] as const)('uses only official flag %s with unknown history', flag => {
+    const data = payload();
+    data.games[0]!.historyLow = null;
+    data.games[0]!.deals[0]!.flag = flag;
+    const html = body(formatNotification(data));
+    expect(html).not.toContain('Mínimo histórico:');
+    expect(html.includes('<p>Mínimo histórico</p>')).toBe(flag === 'H' || flag === 'N');
+    expect(html).not.toMatch(/Mínimo en tienda|Nuevo/);
+  });
+
+  it.each([0, 6.99, 13.99])('shows known history %s numerically without inferring H/N', amount => {
+    const data = payload();
+    data.games[0]!.historyLow = { amount, amountInt: Math.round(amount * 100), currency: 'EUR' };
+    const html = body(formatNotification(data));
+    expect(html).toContain(`<p>Mínimo histórico: ${money(data.games[0]!.historyLow)}</p>`);
+    expect(html).not.toContain('<p>Mínimo histórico</p>');
+    expect(data.games[0]!.deals[0]!.flag).toBeNull();
+  });
+
+  it.each([true, false])('keeps a game without deals, known history=%s, without inventing a price', known => {
+    const data = payload();
+    data.games[0]!.deals = [];
+    if (!known) data.games[0]!.historyLow = null;
+    const parts = formatNotification(data);
+    expect(parts).toEqual([
+      '<h3>Stardew Valley</h3>' +
+      (known ? `<p>Mínimo histórico: 6,99${NBSP}€</p>` : '') +
+      '<tg-button-row><tg-button type="url" style="primary" url="https://isthereanydeal.com/game/stardew-valley/">Ver en ITAD</tg-button></tg-button-row>',
+    ]);
+    expect(parts.join('')).not.toMatch(/<h4>|Comprar|Gratis|precio no indicado/);
+  });
+
   it('groups the official single game and deal in one rich message without altering mock formatDeal', () => {
     const parts = formatNotification(detail);
     expect(parts).toHaveLength(1);
@@ -168,7 +216,7 @@ describe('notification formatter I1', () => {
     const deal = detail.games[0]!.deals[0]!;
     expect(body(parts)).toBe(
       '<h3>Stardew Valley</h3>' +
-      `<h4>13,99${NBSP}€ · <mark>-0%</mark></h4><p><b>GOG</b></p>` +
+      `<h4>13,99${NBSP}€</h4><p><b>GOG</b></p>` +
       `<p>Mínimo histórico: 6,99${NBSP}€</p>` +
       `<tg-button-row><tg-button type="url" style="success" url="${deal.url}">Comprar en GOG</tg-button></tg-button-row>` +
       '<tg-button-row><tg-button type="url" style="primary" url="https://isthereanydeal.com/game/stardew-valley/">Ver en ITAD</tg-button></tg-button-row>');
@@ -176,7 +224,7 @@ describe('notification formatter I1', () => {
     expect(html).not.toContain('unix="1727138584"');
     expect(html).not.toContain('unix="1728223607"');
     expect(html).not.toContain('Cupón:');
-    expect(html).not.toContain('Caduca:');
+    expect(html).not.toMatch(/Caduca:|Hasta/);
     expect(html).not.toContain('<img');
     expect(formatDeal(detail.games[0]!, detail.games[0]!.deals[0]!)).toEqual([
       `Stardew Valley\nGOG\n13.99 EUR (-0%)\n${detail.games[0]!.deals[0]!.url}`,
@@ -207,13 +255,13 @@ describe('notification formatter I1', () => {
     expect(html).not.toMatch(/Precio anterior|Precio habitual|Mínimo en tienda|Precios del juego|Precios de esta tienda/);
     expect(batch[0]!.parts[0]!.startsWith('<h3>Stardew Valley</h3>')).toBe(true);
     expect(html).not.toMatch(/Oferta publicada|DRM:|Plataformas:/);
-    expect(html).toContain('<p><b>Steam</b></p><p>Cupón: <code>MOCK-COUPON</code></p><p>Caduca: 11:00 01-11-2026</p>');
+    expect(html).toContain('<p><b>Steam</b></p><p>Cupón: <code>MOCK-COUPON</code></p><footer>Hasta 11:00 01-11-2026</footer>');
     expect(html).toContain(`<h4>${money({ amount: 6.99, amountInt: 699, currency: 'USD' })} · <mark>-50%</mark></h4><p><b>Steam</b></p>`);
     expect(html).toContain('<p>Mínimo histórico</p>');
     expect(html).not.toMatch(/Tienda:|Paquete|DLC|adultos/);
     expect(html.match(/<h3>/g)).toHaveLength(2);
     expect(html.match(/<hr\/>/g)).toHaveLength(3);
-    expect(html.match(/<mark>-\d+%<\/mark>/g)).toHaveLength(4);
+    expect(html.match(/<mark>-\d+%<\/mark>/g)).toHaveLength(2);
     expect(html.match(/>Ver en ITAD</g)).toHaveLength(2);
     expect(html.match(/>Comprar en /g)).toHaveLength(4);
     let position = -1;
@@ -312,7 +360,7 @@ describe('notification formatter I1', () => {
     expect(countImages(ok[0]!)).toBe(1);
     for (const unsafe of ['http://example.com/b.jpg', 'javascript:alert(1)', 'https://example.com/a b.jpg',
       'https://example.com/"onerror=1', 'https://example.com/<b>', `https://example.com/${'x'.repeat(2100)}`, '']) {
-      expect(body(withBanner(unsafe))).not.toContain('<img');
+      expect(withBanner(unsafe)).toEqual(formatNotification(data));
     }
     expect(body(formatNotification(data, { banners: new Map([['other-game', 'https://example.com/b.jpg']]) }))).not.toContain('<img');
     expect(body(formatNotification(data, { banners: new Map() }))).not.toContain('<img');
@@ -335,6 +383,8 @@ describe('notification formatter I1', () => {
   it('fits exactly the part budget as one message; one extra byte splits at the offer boundary with labelled parts', () => {
     const data = payload();
     const second = { ...structuredClone(data.games[0]!.deals[0]!), shop: { id: 62, name: 'Second shop' }, voucher: 'x' };
+    data.games[0]!.deals[0]!.expiry = '2024-03-21T23:59:59Z';
+    second.expiry = '2026-07-15T12:34:00Z';
     data.games[0]!.deals.push(second);
     // A single part reserves room for the widest "parte 9/9" counter.
     const reserve = utf8Length('<footer>parte 9/9</footer>');
@@ -349,6 +399,11 @@ describe('notification formatter I1', () => {
     checkParts(parts, data.id);
     expect(parts[0]).toContain('<footer>parte 1/2</footer>');
     expect(parts[1]).toContain('<footer>parte 2/2</footer>');
+    // Only multipart markers disappear on join, never offer expiry footers.
+    expect(body(parts)).toContain('<footer>Hasta 00:59 22-03-2024</footer>');
+    expect(body(parts)).toContain('<footer>Hasta 14:34 15-07-2026</footer>');
+    expect(body(parts).match(/<footer>Hasta /g)).toHaveLength(2);
+    expect(body(parts)).not.toContain('<footer>parte ');
     expect(parts[1]!.startsWith('<h3>Stardew Valley (continuación)</h3>')).toBe(true);
     expect(parts[0]).toContain(`url="${data.games[0]!.deals[0]!.url}"`);
     expect(parts[1]).toContain(`<code>${second.voucher}</code>`);
@@ -436,7 +491,8 @@ describe('notification formatter I1', () => {
     expect(item.parts.length).toBeGreaterThan(1);
     const html = body(item.parts);
     expect(html.match(/<h3>/g)!.length).toBeGreaterThanOrEqual(101); // Continuation headings may increase after redesign.
-    expect(html.match(/<mark>-0%<\/mark>/g)).toHaveLength(303);
+    expect(html.match(/<h4>/g)).toHaveLength(303);
+    expect(html).not.toMatch(/<mark>|-0%|Gratis/);
     let previousPosition = -1;
     data.games.forEach(game => {
       const position = html.indexOf(`<h3>${game.title}</h3>`);

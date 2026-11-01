@@ -1,5 +1,5 @@
 import type { Bundle, BundleGame, BundleNotice, BundleTier } from './domain';
-import { buttonRow, attr, esc, gameUrl, money, pack, when, type Frame, type Unit } from './rich';
+import { buttonRow, attr, esc, expiryFooter, gameUrl, money, pack, type Frame, type Unit } from './rich';
 
 function present<T>(value: T | null | false): value is T {
   return value !== null && value !== false;
@@ -7,15 +7,14 @@ function present<T>(value: T | null | false): value is T {
 
 function head(bundle: Bundle): string {
   return `<h3>${esc(bundle.title)}</h3><p><b>${esc(bundle.shop)}</b></p>` +
-    (bundle.note ? `<p>Nota de ITAD: ${esc(bundle.note)}</p>` : '') +
-    (bundle.expiry !== null ? `<p>Caduca: ${when(bundle.expiry)}</p>` : '') +
+    expiryFooter(bundle.expiry) +
     buttonRow([{ label: `Comprar bundle en ${bundle.shop}`, url: bundle.url, style: 'success' }]) +
     (bundle.details !== null ? buttonRow([{ label: 'Ver en ITAD', url: bundle.details, style: 'primary' }]) : '');
 }
 
 function tierTitle(tier: BundleTier, index: number): string {
   // The meaning of `addon` is not documented by ITAD: it is shown as received.
-  return `Nivel ${index + 1} · ${tier.price === null ? 'precio no indicado' : money(tier.price)}` +
+  return `Nivel ${index + 1}` + (tier.price === null ? '' : ` · ${money(tier.price)}`) +
     (tier.addon ? ' · addon' : '');
 }
 

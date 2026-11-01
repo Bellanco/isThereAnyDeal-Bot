@@ -61,6 +61,23 @@ describe('local simulation notices', () => {
     expect(utf8Length(JSON.stringify(large)) + utf8Length(JSON.stringify(formatNotification(large)))).toBeLessThan(2_000_000);
   });
 
+  it('budgets all 1190 expiry footers as well as multipart markers without losing content', () => {
+    const large = notice(2);
+    for (const game of large.games) {
+      for (const deal of game.deals) deal.expiry = '2024-03-21T23:59:59Z';
+    }
+    const parts = formatNotification(large);
+    const content = parts.map(part => part.replace(/<footer>parte \d+\/\d+<\/footer>$/, '')).join('');
+    expect(content.match(/<footer>Hasta 00:59 22-03-2024<\/footer>/g)).toHaveLength(1190);
+    expect(content.match(/style="success"/g)).toHaveLength(1190);
+    expect(content.match(/style="primary"/g)).toHaveLength(595);
+    parts.forEach((part, index) => {
+      expect(part.endsWith(`<footer>parte ${index + 1}/${parts.length}</footer>`)).toBe(true);
+      expect(utf8Length(part)).toBeLessThanOrEqual(RICH_BUDGET.bytes);
+      expect(countBlocks(part)).toBeLessThanOrEqual(RICH_BUDGET.blocks);
+    });
+  });
+
   it.each([1, 3, 4, 6])('keeps small notice %i in a single part', index => {
     expect(notice(index).games).toHaveLength(2);
     expect(formatNotification(notice(index))).toHaveLength(1);

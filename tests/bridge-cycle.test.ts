@@ -1218,7 +1218,10 @@ describe('hourly bundle notices', () => {
   it('notifies a new bundle with Waitlist games, marking what the Collection already owns', async () => {
     const context = await full();
     await firstTick(context);
-    const found = makeBundle(9101, [makeGame(1), makeGame(2), makeGame(3, { type: 'dlc' })]);
+    const found = makeBundle(9101, [makeGame(1), makeGame(2), makeGame(3, { type: 'dlc' })], {
+      note: 'Condición oficial conservada solo en datos',
+      expiry: '2024-03-22T00:59:46+01:00',
+    });
     context.bundleEntries.unshift(asEntry(found));
     context.waitlistGames.push(...waitlisted(1, 3));
     context.collection.push(bundleGameId(3));
@@ -1236,8 +1239,11 @@ describe('hourly bundle notices', () => {
     expect(context.sent.map(item => ({ text: item.text, via: item.via })))
       .toEqual(expected.map(text => ({ text, via: 'sendRich' })));
     const html = expected.join('');
+    expect(html).not.toContain(found.note!);
+    expect(html).not.toMatch(/Nota de ITAD|Caduca:/);
+    expect(html).toContain('<footer>Hasta 00:59 22-03-2024</footer>');
     expect(html).not.toContain('incluye 2 juegos de tu Waitlist');
-    expect(html).not.toMatch(/ITAD · Bundle|Bundle ITAD|<footer>/);
+    expect(html).not.toMatch(/ITAD · Bundle|Bundle ITAD|<footer>parte \d+\/\d+<\/footer>/);
     expect(html.match(/en tu lista de deseos/g)).toHaveLength(2);
     expect(html.match(/en tu Colección/g)).toHaveLength(1);
     expect(html).not.toContain('<mark>');
@@ -1245,6 +1251,10 @@ describe('hourly bundle notices', () => {
     expect(html).not.toContain('partner=abc&charity');
 
     const key = bundleKey(9101);
+    const stored = context.db.raw.prepare('SELECT detail_json, parts_json FROM notification_work WHERE notification_id = ?')
+      .get(key) as { detail_json: string; parts_json: string };
+    expect(JSON.parse(stored.detail_json).bundle.note).toBe(found.note);
+    expect(JSON.parse(stored.parts_json)).toEqual(expected);
     expect(knownSource(context, key)).toBe('new');
     const parts = await context.storage.notificationParts(key);
     expect(parts).toHaveLength(expected.length);

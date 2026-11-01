@@ -65,6 +65,11 @@ export function when(iso: string): string {
   return `${parts.get('hour')}:${parts.get('minute')} ${parts.get('day')}-${parts.get('month')}-${parts.get('year')}`;
 }
 
+/** Native Rich footer, not CSS font sizing. Telegram determines its rendering. */
+export function expiryFooter(iso: string | null): string {
+  return iso === null ? '' : `<footer>Hasta ${when(iso)}</footer>`;
+}
+
 /** ITAD page of a game; the slug comes from the official payload. */
 export function gameUrl(slug: string): string {
   return `https://isthereanydeal.com/game/${encodeURIComponent(slug)}/`;
