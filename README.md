@@ -8,9 +8,34 @@ fixtures contrastados con OpenAPI 2.11.0, sin cuenta ni envíos reales.
 Aclara la errata documental del feed: `/bundles/v1`, no `/bundles/v2`;
 el cliente ya usa la ruta correcta. No altera el historial de despliegue.
 
-## Estado actual: Rich v4 desplegado y versión activa verificada
+## Estado actual: reglas finales Rich desplegadas y versión activa verificada
 
-### Deploy autorizado Rich v4 — 2026-11-01
+### Deploy autorizado de reglas finales — 2026-11-01
+
+Árbol local completo desplegado en el Worker existente `itad-telegram-bot` con
+`wrangler.production.local.jsonc`. Versión **`a5249f58-4e5a-4c78-9df8-1aa26b73c7a6`,
+al 100%**, fecha **2026-11-01 11:46:48.755025 UTC**, mensaje
+`Deploy final Rich display rules and subtle expiry`. `deployments status` y el
+**último** registro de `deployments list` coinciden en versión, fecha, mensaje
+y autor (identidad redactada). Sustituye a `a246f649-1b2b-40f8-98f5-f026acc1229b`.
+
+Incluye cero por ciento omitido, niveles sin precio cuando `price:null`, notas
+ITAD omitidas visualmente y `<footer>Hasta hh:mm dd-mm-aaaa</footer>`, además
+del resto de v4 y tests/preview oficial aprobados. Check offline, typecheck,
+suite completa en serie (**663 tests / 18 archivos**) y dry-run producción:
+exit 0; temporal propio eliminado. Deploy: exit 0, salida de triggers
+**`schedule: * * * * *`**. Conserva `APP_MODE=production`,
+`LIVE_DELIVERY=enabled`, `workers_dev=false`, `preview_urls=false`, sin rutas.
+
+No se modificaron config, secretos, dependencias, migraciones ni estado D1;
+sin OAuth/refresh manual, envíos manuales, pruebas HTTP o ITAD/Telegram reales,
+stage/commit/push. El cron natural preexistente permanece habilitado:
+confirmar trigger no acredita un tick funcional, render o entrega.
+`bundles: off` sigue siendo el estado conocido por logs del usuario, no una
+comprobación nueva; no se cambiaron key/scopes. Coste cloud no cuantificado,
+sin recursos nuevos. [Comandos y checklist actual](docs/I7-operacion.md#18-despliegue-autorizado-de-reglas-finales-rich--2026-11-01).
+
+### Antecedente: deploy autorizado Rich v4 — 2026-11-01
 
 Sobre el checkout existente, `check:prod -- --config .\wrangler.production.local.jsonc --activate`,
 `npm run typecheck` y `wrangler deploy --dry-run` con la configuración de producción
@@ -34,7 +59,7 @@ en la configuración inspeccionada: no se publicó el receptor HTTP mock.
 
 La operación anterior había aplicado 0005 y listado la versión
 `02994b02-61e2-4a3a-a96d-18bf1fc70525`; queda como antecedente, no prueba de salud
-actual. Render real, trigger remoto, scopes/API key,
+actual. Render real, tick funcional, scopes/API key,
 cuotas y continuidad funcional siguen pendientes. Las referencias a “no
 ejecutado en I7” describen fases históricas.
 
@@ -110,7 +135,7 @@ La lista oficial consultada no enumera `<small>`: se usan `p`, títulos, `mark`
 solo para descuentos, `hr` y filas/botones Rich documentados. No se usa
 `tg-time` porque mostraría fechas localizadas por Telegram.
 
-### Ajustes aprobados del formatter — local, sin desplegar (2026-11-01)
+### Ajustes aprobados del formatter — desplegados (2026-11-01)
 
 - `cut=0`: precio exacto, sin porcentaje, `mark` ni ` · ` sobrante;
   `cut>0` conserva el formato anterior. Un precio cero sigue siendo numérico,
@@ -145,12 +170,13 @@ garantiza ese tamaño en Telegram**. No se envían `small`, `span` ni CSS.
 `sendRichMessage`, `html`/`skip_entity_detection`, imágenes independientes y
 botones success/primary contrastados con la fuente oficial; sin incompatibilidad
 que justifique cambiar el cliente. Aceptación y render reales **PENDIENTES de
-tu ejecución**, sin envíos ni despliegue en este ajuste.
+tu ejecución**; el ajuste está desplegado, sin envíos de prueba.
 [Evidencia y QA](docs/ejemplos-oficiales-preview.md#caducidad-secundaria--footer-rich-nativo).
 
 QA y preview oficial offline actualizado:
 [reglas, comandos y resultados](docs/ejemplos-oficiales-preview.md#ajustes-aprobados-del-formatter--seguimiento-local).
-Este encargo no cambia la versión remota ni acredita render/entrega reales.
+Estos ajustes ya están en la versión activa indicada arriba; no acreditan
+render/entrega reales.
 
 Preview v4 autocontenido de esta sesión:
 `C:\Users\bella\.copilot\session-state\f5de483d-d716-4c23-bbf1-65bbeb7ce95e\files\telegram-preview-v4.html`.
@@ -183,7 +209,8 @@ HTML en un navegador **no es el render exacto de Telegram**.
 Los tres ejemplos usan el diseño Rich sin cabeceras resumen ni pies técnicos,
 con la nota ficticia del bundle ausente (`note: null`). Todas las notas ITAD se
 omiten visualmente; la nota real permanece en los datos internos.
-Este ajuste está validado localmente, no desplegado por este encargo.
+Este ajuste está validado localmente y desplegado; el preview sigue siendo
+offline, no una prueba de Telegram real.
 
 Solo el usuario, en un terminal privado y tras decidir autorizar esos tres envíos:
 

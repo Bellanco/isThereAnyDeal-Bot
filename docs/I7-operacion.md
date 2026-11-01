@@ -1,10 +1,19 @@
 # Operación — despliegues Rich/bundles y estado actual
 
+**Actual (2026-11-01 11:46:48.755025 UTC):** reglas finales Rich desplegadas,
+versión `a5249f58-4e5a-4c78-9df8-1aa26b73c7a6` al **100%**, mensaje
+`Deploy final Rich display rules and subtle expiry`. Status y último registro
+del listado coinciden, autor redactado. La salida del deploy confirmó
+`schedule: * * * * *`; no se verificó tick funcional ni render/entrega reales.
+Config activa existente intacta, sin nuevas migraciones o cambios de secretos,
+D1, OAuth, key/scopes, baseline/gates/colas. `bundles: off` conocido por logs del
+usuario, no reconsultado ni modificado. [Evidencia y checklist actual](#18-despliegue-autorizado-de-reglas-finales-rich--2026-11-01).
+
 **Antecedente (2026-11-01):** migración 0005 aplicada y versión
 `02994b02-61e2-4a3a-a96d-18bf1fc70525` listada; cron cada minuto confirmado en
 ese deploy. Ver el [intento histórico](#16-intento-autorizado-de-actualización--2026-11-01).
 
-**Deploy Rich v4 posterior (2026-11-01):** comando de deploy exit 0 y versión
+**Antecedente: deploy Rich v4 posterior (2026-11-01):** comando de deploy exit 0 y versión
 `a246f649-1b2b-40f8-98f5-f026acc1229b` confirmada al 100% en
 `deployments status` y en el último registro de `deployments list`, con el mensaje
 autorizado. La discrepancia inicial se resolvió revisando fechas y el listado completo:
@@ -76,7 +85,8 @@ feed oficial con Waitlist, no reglas oficiales de notificación de bundles.
    No afirmar entrega ni independencia del correo por un deploy o preview.
 
 No ejecutar pasos siguientes si el anterior carece de evidencia/confirmación.
-El agente no ha ejecutado comandos cloud, OAuth ni envíos reales en este cierre.
+Este procedimiento histórico no autoriza operaciones adicionales. El deploy
+actual autorizado figura en §18; no se ejecutaron OAuth ni envíos de prueba.
 
 ### Preview móvil sin tocar producción
 
@@ -95,7 +105,7 @@ ni cloud. Dry-run imprime HTML, no render exacto del cliente Telegram.
 El formato v4 incluido en la versión listada quita cabeceras resumen y pies técnicos en Rich;
 solo conserva `parte X/Y` en multipartes. Del bundle solo muestra caducidad;
 ofertas Waitlist también muestran solo caducidad, en Madrid `hh:mm dd-mm-aaaa`.
-El ajuste local posterior usa en ambas `<footer>Hasta hh:mm dd-mm-aaaa</footer>`,
+El ajuste final desplegado (§18) usa en ambas `<footer>Hasta hh:mm dd-mm-aaaa</footer>`,
 sin negrita, helper compartido `expiryFooter`/`when` Europe/Madrid existente;
 null no muestra bloque ni etiqueta. Footer es un bloque Rich oficial,
 no CSS/tamaño arbitrario. La maqueta lo aproxima menor y secundario, sin
@@ -104,13 +114,15 @@ ejecución del usuario** con el comando live de arriba.
 Omite DRM/plataformas, publicación, precios secundarios de tienda, precio anterior
 y señal de mínimo de tienda; conserva mínimo histórico del juego, sin inferir
 un mínimo trimestral. No cambia texto legado,
-IDs/recibos ni planes ya persistidos. No se ha desplegado este ajuste.
+IDs/recibos ni planes ya persistidos. Este ajuste ya está desplegado (§18).
 Ejemplos: banner/precios/mínimo; varias tiendas/DLC/cupón/caducidad/adultos;
 bundle tres niveles/caducidad/Waitlist+Colección. La nota ficticia se quitó del
 ejemplo. La decisión anterior de conservar notas reales visualmente queda
 reemplazada explícitamente: ninguna nota ITAD se dibuja en Rich bundles;
 `bundle.note` se conserva en payload, validadores y persistencia. No cambia
-planes ya persistidos ni la versión remota; [verificación local y maquetas](ejemplos-oficiales-preview.md#caducidad-secundaria--footer-rich-nativo).
+planes ya persistidos; el formatter actualizado está en la versión remota
+indicada en §18. La [verificación local y maquetas](ejemplos-oficiales-preview.md#caducidad-secundaria--footer-rich-nativo)
+sigue siendo evidencia offline, no render real.
 Títulos/tiendas inventados,
 compras en example.com, enlaces ITAD por slugs ficticios que pueden no existir.
 Banner conocido HTTP 200 `https://placehold.co/600x280/2b3a55/ffffff/png?text=Nebula+Drifters`
@@ -958,3 +970,73 @@ pendientes de observación; no se infieren del estado de la versión.
 Los checks son locales; no prueban render Telegram, procesamiento de tick,
 entrega, continuidad OAuth ni correo. No se cuantificó coste cloud. Alojamiento:
 Worker existente + D1 existente; no se crearon recursos ni rutas HTTP públicas.
+
+## 18. Despliegue autorizado de reglas finales Rich — 2026-11-01
+
+Permiso explícito: deploy de todo el árbol actual, sin omitir ajustes aprobados,
+en `itad-telegram-bot` con `wrangler.production.local.jsonc`. No se exigió rama
+ni se revirtieron cambios; Git estaba limpio al inicio. Solo se editaron README
+y este documento después del deploy. Sin stage/commit/push ni hooks.
+
+### Comandos ejecutados y resultados
+
+Desde la raíz del proyecto, PowerShell:
+
+```powershell
+git --no-pager status --short
+git --no-pager diff --check
+npm run check:prod -- --config .\wrangler.production.local.jsonc --activate
+npm run typecheck
+npm test -- --no-file-parallelism
+# $tmp: directorio exclusivo itad-prod-dryrun-<UUID> en GetTempPath();
+# salida Wrangler capturada en memoria y filtrada, eliminación en finally.
+node .\node_modules\wrangler\bin\wrangler.js deploy --dry-run --config .\wrangler.production.local.jsonc --autoconfig=false --outdir $tmp
+node .\node_modules\wrangler\bin\wrangler.js deploy --config .\wrangler.production.local.jsonc --autoconfig=false --message "Deploy final Rich display rules and subtle expiry"
+node .\node_modules\wrangler\bin\wrangler.js deployments status --config .\wrangler.production.local.jsonc --json
+node .\node_modules\wrangler\bin\wrangler.js deployments list --config .\wrangler.production.local.jsonc --json
+```
+
+Todos exit **0**. Check: `production_config_valid_offline_only`. Suite:
+**663 tests, 18 archivos**, 16,49 s en serie; incluye Rich, bundles, contratos
+oficiales y ambos previews. Warning SQLite experimental, sin fallos.
+Dry-run: **139,02 KiB / gzip 32,05 KiB**, temporal eliminado y comprobado.
+Deploy: mismo tamaño, startup **4 ms**, upload **6,21 s**, triggers **3,12 s**:
+
+```text
+Deployed itad-telegram-bot triggers (3.12 sec)
+  schedule: * * * * *
+Current Version ID: a5249f58-4e5a-4c78-9df8-1aa26b73c7a6
+```
+
+Metadata: deployment `392dde8f-ba15-4ac3-b1b0-fd2a23a346f3`,
+creado **2026-11-01T11:46:48.755025Z**, fuente `wrangler`,
+`workers/triggered_by=deployment`, mensaje autorizado, una sola versión al
+**100%**. Autor presente y coincidente en status/list; identidad redactada.
+El listado de diez registros está en orden **antiguo primero**: el último
+coincide con status y es el nuevo deploy. Versión antes activa:
+`a246f649-1b2b-40f8-98f5-f026acc1229b`. No hubo reintento ni rollback.
+No se mostraron bindings, valores privados, contactos o secretos.
+
+### Checklist y límites para QA
+
+| Control | Resultado |
+| --- | --- |
+| Árbol completo aprobado, cero % omitido, tier null sin precio, notas omitidas, footer nativo y resto v4 | Incluido en deploy; suite offline aprobada |
+| Check activo offline, typecheck, tests y dry-run config real | Exit 0 |
+| Temporal de dry-run | Eliminado |
+| Versión persistida activa, mensaje/autor/fecha y último registro | Coinciden; 100% |
+| Cron cada minuto | Confirmado por salida de triggers del deploy, no por status |
+| Config existente | `APP_MODE=production`, `LIVE_DELIVERY=enabled`, `workers_dev=false`, `preview_urls=false`, sin routes/route; intacta |
+| D1/secrets/config/migraciones/dependencias/OAuth/refresh/baseline/gates/colas/key/scopes | Sin modificaciones ni operaciones manuales |
+| Tick funcional, recuperación, render móvil y oferta real sin correo | Pendientes; no se disparó HTTP/mock ni pruebas ITAD/Telegram reales |
+| Bundles | `off` según logs conocidos del usuario; no verificado de nuevo ni alterado |
+
+Se conserva el cron natural preexistente; podría ejecutar producción y sus
+operaciones normales, pero no se observó ni provocó un tick. No se inició tail.
+No se crearon recursos ni rutas públicas. Costes nuevos de infraestructura:
+ninguno provisionado; consumo Workers/D1 sujeto al plan existente, no medido.
+La metadata activa y el trigger no prueban entrega, salud OAuth, cuotas,
+aceptación del footer por Telegram ni independencia del correo. Preview
+oficial validado offline; ejemplo real Telegram pendiente de autorización
+y ejecución del usuario, sin deshabilitar la Waitlist. No ejecutar
+reaprovisionamiento histórico de §§1–17 por este deploy.

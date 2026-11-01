@@ -9,3 +9,4 @@ wrangler.production.local.jsonc
 *.oauth-envelope.sql
 *.oauth-envelope.json
 itad-openapi.json
+claves.local.txt
