@@ -1,16 +1,22 @@
-# Operación — producción anterior y actualización Rich/bundles
+# Operación — despliegues Rich/bundles y estado actual
 
-**Actualizacion autorizada (2026-11-01): migracion 0005 aplicada y deploy correcto.**
-Version `02994b02-61e2-4a3a-a96d-18bf1fc70525` verificada en deployments;
-cron `* * * * *` conservado. El primer fallo de lectura quedo superado.
-Ver [evidencias y checklist del intento](#16-intento-autorizado-de-actualización--2026-11-01);
-las referencias a cierres anteriores de este documento son históricas.
+**Antecedente (2026-11-01):** migración 0005 aplicada y versión
+`02994b02-61e2-4a3a-a96d-18bf1fc70525` listada; cron cada minuto confirmado en
+ese deploy. Ver el [intento histórico](#16-intento-autorizado-de-actualización--2026-11-01).
 
-**Codigo Rich/bundles desplegado; render real y salud funcional pendientes.** Producción
-anterior activa según evidencia aportada por el usuario: baseline de 23 avisos,
-tick cada minuto, recuperación de sesión OAuth. No se ha vuelto a consultar
-un tick de la nueva version. Cloudflare Workers + D1, TypeScript, HTTP nativo y sin
-nuevas dependencias. CPU/cuotas Free del rediseño siguen pendientes.
+**Deploy Rich v4 posterior (2026-11-01):** comando de deploy exit 0 y versión
+`a246f649-1b2b-40f8-98f5-f026acc1229b` confirmada al 100% en
+`deployments status` y en el último registro de `deployments list`, con el mensaje
+autorizado. La discrepancia inicial se resolvió revisando fechas y el listado completo:
+se había tomado un cambio de secreto antiguo como el registro más reciente.
+No se repitió el deploy ni se hizo rollback. La consulta no informó el cron, así que el trigger remoto actual
+queda sin verificar. Ver [evidencia y checklist del intento nuevo](#17-intento-autorizado-de-despliegue-rich-v4--2026-11-01).
+
+Render real, salud funcional, scopes/API key y cuotas siguen pendientes. La
+producción anterior se describió como activa según evidencia aportada por el
+usuario (baseline de 23 avisos, tick cada minuto y sesión OAuth recuperada);
+no se verificó aquí un tick ni el funcionamiento de ninguna de las versiones.
+Cloudflare Workers + D1, TypeScript, HTTP nativo y sin nuevas dependencias.
 
 Las secciones I7/I8/I9 de instalación inicial y su validación al final son
 **históricas**, no instrucciones para crear de nuevo la DB, baseline o bot.
@@ -86,7 +92,7 @@ Token/chat de entrada oculta, validación y confirmación exacta
 `ENVIAR 3 EJEMPLOS`; no opciones/env/archivos de secretos. Formateadores,
 validadores y cliente Telegram reales compilados en temporal propio, sin D1
 ni cloud. Dry-run imprime HTML, no render exacto del cliente Telegram.
-El ajuste local posterior quita cabeceras resumen y pies técnicos en Rich;
+El formato v4 incluido en la versión listada quita cabeceras resumen y pies técnicos en Rich;
 solo conserva `parte X/Y` en multipartes. Del bundle solo muestra caducidad;
 ofertas Waitlist también muestran solo caducidad, en Madrid `hh:mm dd-mm-aaaa`.
 Omite DRM/plataformas, publicación, precios secundarios de tienda, precio anterior
@@ -781,10 +787,10 @@ Las pruebas live del script inyectan transporte **simulado**, no tokens reales.
 No instalación de dependencias, commit/push, lectura de archivos de secretos,
 OAuth real, deploy, operación cloud ni mensaje real en este encargo.
 
-**Siguen externos:** pasos autorizados de actualización anteriores, render móvil,
-moneda ES, CPU/cuotas Free, continuidad real y aviso natural con correo
-desactivado. Producción anterior activa solo según evidencia del usuario;
-rediseño local no desplegado. Este cierre no confirma estado remoto nuevo.
+**Cierre histórico anterior a los deploys:** render móvil, moneda ES, CPU/cuotas
+Free, continuidad real y aviso natural con correo desactivado seguían externos.
+Su frase «rediseño local no desplegado» describe solo ese cierre y no el intento
+posterior documentado abajo.
 
 ## 16. Intento autorizado de actualización — 2026-11-01
 
@@ -878,3 +884,67 @@ npm run preview:telegram -- --live
 
 No lo ejecutó el agente. Exige entrada oculta de token/chat y confirmación
 `ENVIAR 3 EJEMPLOS`; el render móvil sigue pendiente.
+
+## 17. Intento autorizado de despliegue Rich v4 — 2026-11-01
+
+Permiso: desplegar el árbol actual en el Worker existente mediante
+`wrangler.production.local.jsonc`, conservando `LIVE_DELIVERY=enabled`, cron
+`* * * * *` y valores/secretos actuales. No incluía migraciones nuevas,
+modificar secretos/configuración/estado, OAuth manual, llamadas reales de prueba,
+mensajes manuales ni cambios de correo. No se reinstalaron dependencias.
+
+### Ejecutado realmente
+
+- `git --no-pager status --short`: worktree con cambios acumulados autorizados
+  en README, docs, formatter/helper, simulación y fixtures/tests; no se revirtió
+  nada. `git diff --check` y `git diff --cached --check`: exit 0.
+- En la lectura final, `git status --short` mostró solo `README.md` y
+  `docs/I7-operacion.md` como modificados; `HEAD` se observó como `f2f99e0`.
+  No ejecuté commit ni push. La diferencia respecto del estado inicial no se
+  atribuye a una acción del agente ni se intentó reconstruir/revertir.
+- `npm run check:prod -- --config .\wrangler.production.local.jsonc --activate`:
+  exit 0, `production_config_valid_offline_only`.
+- `npm run typecheck`: exit 0.
+- `wrangler deploy --dry-run --config .\wrangler.production.local.jsonc
+  --env-file NUL`: exit 0; bundle temporal eliminado. Sin deploy durante el dry-run.
+- `node .\node_modules\wrangler\bin\wrangler.js deploy --config
+  .\wrangler.production.local.jsonc --autoconfig=false --message "Deploy
+  approved compact Rich v4 design"`: exit 0. La salida cruda se suprimió para
+  evitar filtrar datos de cuenta/configuración.
+- `wrangler deployments list --config .\wrangler.production.local.jsonc`:
+  exit 0. Inicialmente se interpretó el primer registro
+  `024ac491-0fcf-4a67-a34f-cb9bdc71aa8c` como reciente; corresponde realmente
+  a un cambio de secreto del 2026-10-31 a las 20:38 UTC.
+- `wrangler deployments status --config .\wrangler.production.local.jsonc`:
+  exit 0, metadata de versión actual
+  `a246f649-1b2b-40f8-98f5-f026acc1229b`, al 100%, mensaje autorizado.
+- Comprobación final: ambos comandos repetidos, exit 0; el último registro del
+  listado coincide con status, creado el 2026-11-01 a las 01:53:39 UTC.
+  Versión nueva activa confirmada sin efectuar otra escritura.
+- La configuración inspeccionada mantiene el cron cada minuto y live delivery.
+  `deployments status` no expuso el cron; conservación remota posterior no
+  verificada. No se inició tail ni espera de tick.
+- No se consultó ni modificó D1; no se ejecutó migración alguna. No se leyeron
+  secretos ni se ejecutaron OAuth/refresh, ITAD/Telegram reales, envíos manuales,
+  pruebas HTTP públicas o cambios de cuenta/chat/baseline/gates/colas.
+- No commit ni push.
+
+### Checklist posterior
+
+| Control | Evidencia |
+| --- | --- |
+| Check offline con configuración activa, typecheck y dry-run producción | Hecho, exit 0 |
+| Deploy del mensaje autorizado | Hecho, exit 0 |
+| Versión nueva presente en `deployments list` | Hecho: `a246f649-1b2b-40f8-98f5-f026acc1229b` |
+| Versión nueva confirmada como actual/activa | Hecho: `deployments status` coincide, 100% |
+| Cron remoto `* * * * *` después del deploy | **No verificado** por metadata disponible; no se esperó tick |
+| Render real, oferta natural, scopes, salud y cuotas | Pendientes; no inferibles del deploy |
+
+La discrepancia inicial quedó resuelta mediante lecturas de metadata y revisión
+de fechas, sin reintentar deploy, rollback, cambio de triggers ni otra escritura
+remota. La versión nueva está activa. El cron remoto y la salud funcional quedan
+pendientes de observación; no se infieren del estado de la versión.
+
+Los checks son locales; no prueban render Telegram, procesamiento de tick,
+entrega, continuidad OAuth ni correo. No se cuantificó coste cloud. Alojamiento:
+Worker existente + D1 existente; no se crearon recursos ni rutas HTTP públicas.

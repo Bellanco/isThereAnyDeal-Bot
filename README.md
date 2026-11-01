@@ -3,36 +3,35 @@
 Proyecto para recibir en Telegram las ofertas de la Waitlist de IsThereAnyDeal,
 sin utilizar el correo como intermediario.
 
-## Estado actual: Rich desplegado; render real y activacion de bundles pendientes
+## Estado actual: Rich v4 desplegado y versión activa verificada
 
-### Intento autorizado de actualización — 2026-11-01
+### Deploy autorizado Rich v4 — 2026-11-01
 
-Checkout comprobado: `3010b5c` (`feat: update design`), worktree inicialmente
-limpio. `check:prod -- --config .\wrangler.production.local.jsonc --activate`
-pasó offline. Objetivo comprobado sin imprimir identificadores: Worker
-`itad-telegram-bot`, D1 `itad-telegram-db`, binding `DB`,
-`APP_MODE=production`, `LIVE_DELIVERY=enabled`, cron `* * * * *`.
-`workers_dev=false`, `preview_urls=false`, sin rutas configuradas: no se publicó
-el receptor HTTP mock.
+Sobre el checkout existente, `check:prod -- --config .\wrangler.production.local.jsonc --activate`,
+`npm run typecheck` y `wrangler deploy --dry-run` con la configuración de producción
+pasaron. El deploy autorizado terminó con exit **0**. La comprobación final de
+`deployments status` y del último registro de `deployments list` coincide:
+**`a246f649-1b2b-40f8-98f5-f026acc1229b`, al 100%**, mensaje
+`Deploy approved compact Rich v4 design`, creado el 2026-11-01 a las 01:53 UTC.
+La discrepancia inicial era una lectura del primer registro del listado:
+`024ac491-0fcf-4a67-a34f-cb9bdc71aa8c` corresponde a un cambio de secreto anterior
+del 2026-10-31, no al deploy nuevo. No se repitió el deploy ni se hizo rollback.
 
-**Desplegado:** tras un primer fallo de lectura, la consulta remota posterior
-paso y mostro solo `0005_rich_bundles.sql` pendiente. Se aplico mediante Wrangler;
-la lista quedo vacia y se verificaron `delivery_parts.format` y `bundle_state`.
-Deploy exit 0, version `02994b02-61e2-4a3a-a96d-18bf1fc70525`,
-verificada tambien en `deployments list`; trigger `* * * * *` conservado.
-No se ha observado un tick de esta version ni comprobado su render real.
-No se cambiaron secretos, cuenta/chat, baseline, gates o colas; no se ejecutó
-OAuth, refresh manual ni ejemplos Telegram. La actividad natural preexistente
-no se detuvo. [Comandos y checklist de este intento](docs/I7-operacion.md#16-intento-autorizado-de-actualización--2026-11-01).
+La configuración local usada conserva `LIVE_DELIVERY=enabled` y cron
+`* * * * *`; `deployments status` no expuso el cron, por lo que su estado remoto
+posterior a este deploy queda sin verificar. No se esperó un tick. No se consultó
+ni modificó D1 ni se aplicaron migraciones nuevas. No se cambiaron secretos,
+cuenta/chat, baseline, gates o colas; no se ejecutó OAuth/refresh manual, no se
+hizo envío manual, prueba real ITAD/Telegram ni request HTTP público.
+`workers_dev=false`, `preview_urls=false` y la ausencia de rutas se conservaron
+en la configuración inspeccionada: no se publicó el receptor HTTP mock.
+[Comandos, versiones y checklist](docs/I7-operacion.md#17-intento-autorizado-de-despliegue-rich-v4--2026-11-01).
 
-La producción anterior está activa según la evidencia aportada por el usuario:
-baseline de **23 avisos**, tick cada minuto y sesión OAuth recuperada. No se ha
-verificado funcionalmente ese baseline en este encargo. **El codigo Rich y bundles
-esta desplegado; scopes/API key y render real siguen sin verificar.** Las afirmaciones de
-"no ejecutado en I7" de las secciones históricas describen aquella fase, no
-anulan la evidencia posterior. El ajuste visual Rich v4 descrito abajo solo está
-en el árbol local: no se ha desplegado ni se ha enviado ningún mensaje real en
-este encargo.
+La operación anterior había aplicado 0005 y listado la versión
+`02994b02-61e2-4a3a-a96d-18bf1fc70525`; queda como antecedente, no prueba de salud
+actual. Render real, trigger remoto, scopes/API key,
+cuotas y continuidad funcional siguen pendientes. Las referencias a “no
+ejecutado en I7” describen fases históricas.
 
 ### Diseño preparado
 
@@ -62,9 +61,9 @@ este encargo.
   Rich se divide sin truncar por presupuesto conservador de 30.000 bytes UTF-8,
   400 bloques y 40 imágenes (límites oficiales: 32.768, 500 y 50).
 
-### Rich v4 local — tres ejemplos ficticios para revisar en móvil
+### Rich v4 desplegado — tres ejemplos ficticios para revisar en móvil
 
-El formatter v4 está preparado localmente; no es una actualización desplegada.
+El formatter v4 está incluido en la versión activa verificada del deploy autorizado.
 La jerarquía es banner/título → precio actual con descuento → tienda → cupón y
 caducidad → secundarios. Se quitan visualmente «Precio habitual», «Mínimo en
 tienda» y «Precio anterior»; permanece `game.historyLow` como «Mínimo histórico».
@@ -167,10 +166,10 @@ script y guía de actualización. [I5](docs/I5.md) explica medición y logs;
 [I7, actualización](docs/I7-operacion.md#actualización-rich-y-bundles-sobre-producción-existente)
 describe permisos paso a paso. Evidencias de este cierre se enumeran al final de I7.
 
-**Pendiente externo:** render móvil real, migración 0005 remota, API key y
-reautorización de scopes, despliegue/reactivación autorizados, moneda real con
-country ES, CPU/cuotas Workers Free con Rich/bundles, continuidad/recibos reales
-y aviso natural nuevo con correo desactivado. No hay garantía de que desactivar
+**Pendiente externo:** confirmar cron remoto, render móvil real,
+API key y reautorización de scopes, moneda real con country ES, CPU/cuotas Workers
+Free con Rich/bundles, continuidad/recibos reales y aviso natural nuevo con correo
+desactivado. No hay garantía de que desactivar
 correo conserve la generación de avisos. No hay entrega exactamente una vez.
 Mismo ID de bundle relanzado no es nuevo; tras una parada larga solo se revisan
 los **50 bundles recientes**, y pertenencia Waitlist se evalúa al detectar,
