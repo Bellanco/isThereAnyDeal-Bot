@@ -52,7 +52,8 @@ export class JsonHttpClient {
     this.#now = now;
   }
 
-  async request(url: string, init: RequestInit, oauth = false): Promise<unknown> {
+  /** `maxChars` skips parsing of a body larger than a caller can afford (CPU budget). */
+  async request(url: string, init: RequestInit, oauth = false, maxChars = Infinity): Promise<unknown> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
@@ -84,6 +85,7 @@ export class JsonHttpClient {
       } catch {
         throw new ServiceError(controller.signal.aborted ? 'timeout' : 'network', response.status);
       }
+      if (text.length > maxChars) throw new ServiceError('shape', response.status);
       let body: unknown;
       try {
         body = JSON.parse(text);

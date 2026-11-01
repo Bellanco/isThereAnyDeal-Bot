@@ -1,5 +1,6 @@
 import { MAX_TEXT } from './domain';
 import { HTTP_TIMEOUT_MS, type HttpTransport } from './itad-http';
+import { MAX_RICH_BYTES, stripImages, utf8Length } from './rich';
 
 /**
  * rate_limit: retry after parameters.retry_after; transient: retry with backoff
@@ -76,6 +77,30 @@ export class TelegramClient {
     if (typeof text !== 'string' || text.length < 1 || text.length > MAX_TEXT || !text.isWellFormed()) {
       throw new TelegramError('input', 'text');
     }
+    return this.#timed('sendMessage', { chat_id: this.#chatId, text });
+  }
+
+  /**
+   * Rich Message (HTML) to the configured chat only. Entity detection is off so no
+   * text of a notice becomes a link, mention or command by itself.
+   */
+  async sendRich(html: string): Promise<TelegramReceipt> {
+    if (typeof html !== 'string' || html.length < 1 || !html.isWellFormed() || utf8Length(html) > MAX_RICH_BYTES) {
+      throw new TelegramError('input', 'text');
+    }
+    const payload = (value: string) => ({
+      chat_id: this.#chatId, rich_message: { html: value, skip_entity_detection: true },
+    });
+    try {
+      return await this.#timed('sendRichMessage', payload(html));
+    } catch (error) {
+      // A 400 means nothing was sent: a banner Telegram cannot use never blocks the notice itself.
+      if (!(error instanceof TelegramError) || error.reason !== 'bad_request' || !html.includes('<img')) throw error;
+      return this.#timed('sendRichMessage', payload(stripImages(html)));
+    }
+  }
+
+  async #timed(method: 'sendMessage' | 'sendRichMessage', payload: object): Promise<TelegramReceipt> {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_, reject) => {
@@ -85,20 +110,20 @@ export class TelegramClient {
       }, HTTP_TIMEOUT_MS);
     });
     try {
-      return await Promise.race([this.#send(text, controller.signal), deadline]);
+      return await Promise.race([this.#post(method, payload, controller.signal), deadline]);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       controller.abort();
     }
   }
 
-  async #send(text: string, signal: AbortSignal): Promise<TelegramReceipt> {
+  async #post(method: string, payload: object, signal: AbortSignal): Promise<TelegramReceipt> {
     let response: Response;
     try {
-      response = await this.#transport(new Request(`https://api.telegram.org/bot${this.#token}/sendMessage`, {
+      response = await this.#transport(new Request(`https://api.telegram.org/bot${this.#token}/${method}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ chat_id: this.#chatId, text }),
+        body: JSON.stringify(payload),
         // workerd rejects redirect 'error'; 'manual' + explicit rejection below never follows a redirect.
         signal, redirect: 'manual', cache: 'no-store',
       }));

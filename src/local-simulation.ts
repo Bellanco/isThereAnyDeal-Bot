@@ -2,9 +2,10 @@ import type { OAuthTokens } from './oauth';
 import type { HttpTransport } from './itad-http';
 
 /**
- * LOCAL INTEGRATION ONLY. Simulates ITAD list/detail, the OAuth token endpoint and
- * Telegram sendMessage in memory. Every value here is public and fictitious; it is
- * not a secret, not a real account and never reaches the network.
+ * LOCAL INTEGRATION ONLY. Simulates ITAD list/detail, Waitlist/Collection games, the
+ * bundle feed, the OAuth token endpoint and Telegram sendMessage/sendRichMessage in
+ * memory. Every value here is public and fictitious; it is not a secret, not a real
+ * account and never reaches the network.
  */
 export const LOCAL_SIMULATION = Object.freeze({
   /** Public all-zero test key: protects nothing, only exercises the AES-GCM path. */
@@ -12,12 +13,16 @@ export const LOCAL_SIMULATION = Object.freeze({
   keyVersion: 'local-sim-v1',
   chatId: 100000001,
   botToken: '1:local-simulation-not-a-real-token',
+  /** Public fictitious application key of the simulated bundle feed. */
+  apiKey: 'local-simulation-api-key',
   oauth: {
     clientId: 'local-simulation-client',
     redirectUri: 'http://127.0.0.1:8976/callback',
     authentication: { method: 'public' as const },
   },
 });
+
+const SIMULATED_SCOPE = 'notifications wait_read coll_read';
 
 export const SIMULATED_TELEGRAM_FAILURES = [
   'none', 'rate-limit', 'network', 'server-error', 'rejected', 'unverified', 'forbidden',
@@ -50,11 +55,17 @@ function deal(shop: number, index: number) {
 }
 
 /**
- * Every third simulated notice has this many games (2 deals each) so that it is
- * formatted into exactly 20 Telegram parts, the size used to measure drain
- * progress per tick (I6). Asserted in tests; fictitious data only.
+ * Every third simulated notice has this many games (2 deals each) so that its
+ * Rich HTML is split into exactly 20 Telegram parts, the size used to measure
+ * drain progress per tick (I6). 580-609 games give 20 parts; this is the middle
+ * of that range, so small title/banner differences do not change the count.
+ * Asserted in tests; fictitious data only.
  */
-export const SIMULATED_LARGE_NOTICE_GAMES = 195;
+export const SIMULATED_LARGE_NOTICE_GAMES = 595;
+
+function simulatedGameId(index: number, game: number): string {
+  return `00000000-0000-4000-b000-${String(index * 1000 + game).padStart(12, '0')}`;
+}
 
 /** Fictitious detail served by the simulation (exported for local measurement tests). */
 export function simulatedDetail(id: string, index: number, timestamp: string) {
@@ -62,7 +73,7 @@ export function simulatedDetail(id: string, index: number, timestamp: string) {
   return {
     id, timestamp, read: null,
     games: Array.from({ length: games }, (_, game) => ({
-      id: `00000000-0000-4000-b000-${String(index * 1000 + game).padStart(12, '0')}`,
+      id: simulatedGameId(index, game),
       slug: `simulated-game-${index}-${game}`,
       title: `Juego simulado ${index}.${game + 1}`,
       type: 'game', mature: false, historyLow: null, lastPrice: null,
@@ -71,11 +82,44 @@ export function simulatedDetail(id: string, index: number, timestamp: string) {
   };
 }
 
-/** In-memory scenario: first list is the baseline, each later list adds one notice. */
+/** The first two games of notices 1-9 are in the simulated Waitlist (with a banner each). */
+const SIMULATED_WAITLIST = Array.from({ length: 9 }, (_, notice) => [0, 1].map(game => {
+  const id = simulatedGameId(notice + 1, game);
+  return {
+    id, slug: `simulated-game-${notice + 1}-${game}`, title: `Juego simulado ${notice + 1}.${game + 1}`,
+    type: 'game', mature: false, added: '2026-01-01T00:00:00Z',
+    assets: { banner600: `https://example.invalid/sim/banner-${notice + 1}-${game}.jpg` },
+  };
+})).flat();
+
+function simulatedBundle(id: number, publish: string, games: string[]) {
+  return {
+    id, title: `Bundle simulado ${id}`, page: { id: 1, name: 'Tienda simulada', shopId: null },
+    url: `https://example.invalid/sim/bundle-${id}?ref=affiliate-sim&tier=1`,
+    details: `https://example.invalid/sim/bundles/${id}/`,
+    isMature: false, publish, expiry: null, note: null, counts: { games: games.length, media: 0 },
+    tiers: [{
+      price: { amount: 9.99, amountInt: 999, currency: 'EUR' }, addon: false,
+      games: games.map((game, index) => ({
+        id: game, slug: `simulated-bundle-game-${id}-${index}`, title: `Juego de bundle ${id}.${index + 1}`,
+        type: 'game', mature: false, assets: {},
+      })),
+    }],
+  };
+}
+
+const BASELINE_BUNDLES = [9001, 9002];
+
+/**
+ * In-memory scenario: first list is the baseline, each later list adds one notice.
+ * The bundle feed works the same way: its first listing is the baseline and every
+ * later one adds a bundle (id 9100 + n) with one Waitlist game and one that is not.
+ */
 export class LocalSimulation {
   listCalls = 0;
   sends = 0;
   refreshes = 0;
+  bundleCalls = 0;
   readonly #failure: SimulatedTelegramFailure;
   readonly #failAt: number;
   readonly #epoch: number;
@@ -92,7 +136,7 @@ export class LocalSimulation {
     // Expires inside the refresh margin so the first run exercises a durable rotation.
     return {
       accessToken: 'local-sim-access-0', refreshToken: 'local-sim-refresh-0',
-      expiresAt: now + 2 * 60 * 60_000, scope: 'notifications',
+      expiresAt: now + 2 * 60 * 60_000, scope: SIMULATED_SCOPE,
     };
   }
 
@@ -106,8 +150,28 @@ export class LocalSimulation {
       this.refreshes++;
       return json({
         access_token: `local-sim-access-${this.refreshes}`, token_type: 'Bearer', expires_in: 2_678_400,
-        refresh_token: `local-sim-refresh-${this.refreshes}`, scope: 'notifications',
+        refresh_token: `local-sim-refresh-${this.refreshes}`, scope: SIMULATED_SCOPE,
       });
+    }
+    if (url.origin === 'https://api.isthereanydeal.com' && request.method === 'GET' &&
+        url.pathname === '/bundles/v1') {
+      // Application key only, never an OAuth token.
+      if (request.headers.get('ITAD-API-Key') !== LOCAL_SIMULATION.apiKey) return json({}, 401);
+      const offset = Number(url.searchParams.get('offset'));
+      const limit = Number(url.searchParams.get('limit'));
+      if (url.searchParams.get('country') !== 'ES' || url.searchParams.get('mature') !== 'true' ||
+          !Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 50) {
+        return json({}, 400);
+      }
+      this.bundleCalls++;
+      const baseline = BASELINE_BUNDLES.map(id => simulatedBundle(id, iso(this.#epoch, -120), [simulatedGameId(90, id)]));
+      const added = Array.from({ length: this.bundleCalls - 1 }, (_, index) => {
+        const number = index + 1;
+        return simulatedBundle(9100 + number, iso(this.#epoch, number * 60), [
+          simulatedGameId(number, 0), simulatedGameId(90, 9100 + number),
+        ]);
+      }).reverse();
+      return json([...added, ...baseline].slice(offset, offset + limit));
     }
     if (url.origin === 'https://api.isthereanydeal.com' && request.method === 'GET') {
       if (!request.headers.get('Authorization')?.startsWith('Bearer local-sim-access-')) return json({}, 401);
@@ -131,12 +195,22 @@ export class LocalSimulation {
         const index = Number(match[1]);
         return json(simulatedDetail(id, index, iso(this.#epoch, index * 5)));
       }
+      if (url.pathname === '/waitlist/games/v1') return json(SIMULATED_WAITLIST);
+      // The collection holds the first game of simulated notice 1, which bundle 9101 also contains.
+      if (url.pathname === '/collection/games/v1') return json(SIMULATED_WAITLIST.slice(0, 1));
       return json({}, 404);
     }
     if (url.origin === 'https://api.telegram.org' && request.method === 'POST' &&
-        url.pathname === `/bot${LOCAL_SIMULATION.botToken}/sendMessage`) {
+        (url.pathname === `/bot${LOCAL_SIMULATION.botToken}/sendMessage` ||
+         url.pathname === `/bot${LOCAL_SIMULATION.botToken}/sendRichMessage`)) {
+      const rich = url.pathname.endsWith('/sendRichMessage');
       const body = await request.json() as Record<string, unknown>;
-      if (body.chat_id !== LOCAL_SIMULATION.chatId || typeof body.text !== 'string' || 'parse_mode' in body) {
+      const message = body.rich_message as Record<string, unknown> | null | undefined;
+      const valid = rich
+        ? typeof message === 'object' && message !== null && typeof message.html === 'string' &&
+          message.html.length > 0 && message.skip_entity_detection === true && !('text' in body) && !('parse_mode' in body)
+        : typeof body.text === 'string' && !('parse_mode' in body) && !('rich_message' in body);
+      if (body.chat_id !== LOCAL_SIMULATION.chatId || !valid) {
         return json({ ok: false, error_code: 400, description: 'simulated bad request' }, 400);
       }
       this.sends++;
@@ -158,7 +232,10 @@ export class LocalSimulation {
       }
       return json({
         ok: true,
-        result: { message_id: this.#messageBase + this.sends, date: 0, chat: { id: LOCAL_SIMULATION.chatId, type: 'private' }, text: body.text },
+        result: {
+          message_id: this.#messageBase + this.sends, date: 0, chat: { id: LOCAL_SIMULATION.chatId, type: 'private' },
+          ...(rich ? {} : { text: body.text }),
+        },
       });
     }
     // Anything else is refused: the simulation never falls back to real fetch.

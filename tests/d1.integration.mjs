@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const cli = path.join(root, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 const config = path.join(root, 'wrangler.d1-test.jsonc');
-const migrations = ['0001_i4_storage.sql', '0002_i5_delivery.sql', '0003_i6_detail_claims.sql', '0004_i6_poll_gate.sql'].map(name => path.join(root, 'migrations', name));
+const migrations = ['0001_i4_storage.sql', '0002_i5_delivery.sql', '0003_i6_detail_claims.sql', '0004_i6_poll_gate.sql', '0005_rich_bundles.sql'].map(name => path.join(root, 'migrations', name));
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const now = 1_800_000_000_000;
 let temporary;
@@ -155,6 +155,27 @@ function detail(id) {
           timestamp: '2026-10-31T12:01:00Z', expiry: null,
           url: 'https://example.invalid/another?ref=fixture' }] },
     ],
+  };
+}
+
+function bundleNotice(id) {
+  return {
+    bundle: {
+      id, title: 'Bundle ficticio ñ', shop: 'Tienda ficticia',
+      url: `https://example.invalid/bundle/${id}?a=affiliate-fixture&b=2`,
+      details: `https://example.invalid/details/${id}`, note: null, mature: false,
+      publish: '2026-10-31T12:00:00Z', expiry: '2026-11-30T12:00:00Z',
+      tiers: [
+        { price: { amount: 1, amountInt: 100, currency: 'EUR' }, addon: false,
+          games: [{ id: 'fake-game-1', slug: 'fixture-game-one', title: 'Juego ficticio ñ',
+            type: 'game', mature: false }] },
+        { price: null, addon: true,
+          games: [{ id: 'fake-game-2', slug: 'fixture-game-two', title: 'Otro juego ficticio',
+            type: 'package', mature: false }] },
+      ],
+    },
+    waitlist: ['fake-game-1'],
+    collection: [],
   };
 }
 
@@ -416,7 +437,158 @@ async function main() {
     status: 'not_due', nextPollAt: gateAt + 400_000,
   });
   assert.equal((await call('claimPoll', { owner: 'poll-e', now: gateAt + 400_000 })).status, 'claimed');
-  console.log('D1 local: 1 suite passed; baseline rollback/one-time/restart, durable pending plan/receipts, leases/CAS/expiry, AES-GCM OAuth rotation/tamper and I6 poll gate (one owner, takeover after 120 s, stale complete rejected, not_due) checks passed.');
+
+  // Bundle notices (migration 0005) on real local D1: atomic one-time baseline, hourly claim,
+  // known/seen keys, rich plans and delivery order, across a Worker restart.
+  const bundleAt = now + 50_000;
+  const dueAt = bundleAt + 3_600_000;
+  const knownBundles = async () => (await call('knownNotifications')).notifications
+    .filter(row => row.notification_id.startsWith('bundle:'));
+  const detailsBeforeBundles = (await call('pendingDetails')).ids;
+  assert.equal((await call('bundleBaselineComplete')).complete, false);
+  assert.equal((await call('claimBundleCheck', { now: bundleAt, claimMs: 600_000 })).claimed, false,
+    'no hourly check before the bundle baseline');
+  await call('unknownBundles', { keys: ['bundle:0'] }, 409);
+  await call('unknownBundles', { keys: [uuid(1)] }, 409);
+  await call('failBundleBaselineOnKey', { key: 'bundle:3' });
+  const rolledBackBundles = await localPost({
+    action: 'bundleBaseline', keys: ['bundle:1', 'bundle:3'], now: bundleAt, nextCheckAt: dueAt,
+  });
+  assert.notEqual(rolledBackBundles.status, 200, 'bundle baseline batch failure must reject');
+  assert.equal((await call('bundleBaselineComplete')).complete, false);
+  assert.deepEqual((await call('bundleState')).rows, [], 'failed bundle baseline leaves no marker');
+  assert.deepEqual(await knownBundles(), [], 'failed bundle baseline inserts no keys');
+  await call('clearBundleBaselineFailure');
+  assert.equal((await call('bundleBaseline', {
+    keys: ['bundle:1', 'bundle:2', 'bundle:2'], now: bundleAt, nextCheckAt: dueAt,
+  })).result, 'initialized');
+  assert.equal((await call('bundleBaselineComplete')).complete, true);
+  assert.deepEqual(await knownBundles(), [
+    { notification_id: 'bundle:1', source: 'baseline' },
+    { notification_id: 'bundle:2', source: 'baseline' },
+  ]);
+  const baselineState = (await call('bundleState')).rows;
+  assert.equal(baselineState.length, 1);
+  assert.equal(baselineState[0].next_check_at, dueAt);
+  assert.ok(baselineState[0].run_id_length > 0);
+  assert.equal((await call('bundleBaseline', {
+    keys: ['bundle:99'], now: bundleAt + 1, nextCheckAt: bundleAt + 1,
+  })).result, 'already-initialized');
+  assert.deepEqual((await knownBundles()).map(row => row.notification_id), ['bundle:1', 'bundle:2'],
+    'a repeated baseline never extends the bundle baseline');
+  assert.equal((await call('bundleState')).rows[0].next_check_at, dueAt, 'a repeated baseline never moves the schedule');
+  assert.deepEqual((await call('pendingDetails')).ids, detailsBeforeBundles, 'bundles never enter the detail queue');
+
+  // The hourly check is claimed by moving the schedule forward: one owner, no repeat in the same window.
+  assert.equal((await call('claimBundleCheck', { now: dueAt - 1, claimMs: 600_000 })).claimed, false);
+  const checks = await Promise.all([1, 2, 3, 4].map(() => call('claimBundleCheck', { now: dueAt, claimMs: 600_000 })));
+  assert.equal(checks.filter(item => item.claimed === true).length, 1, JSON.stringify(checks));
+  assert.equal((await call('bundleState')).rows[0].next_check_at, dueAt + 600_000);
+  assert.equal((await call('claimBundleCheck', { now: dueAt + 1, claimMs: 600_000 })).claimed, false);
+  await call('claimBundleCheck', { now: dueAt, claimMs: 0 }, 409);
+  await call('scheduleBundleCheck', { nextCheckAt: dueAt + 3_600_000 });
+  assert.equal((await call('bundleState')).rows[0].next_check_at, dueAt + 3_600_000);
+  assert.equal((await call('claimBundleCheck', { now: dueAt + 3_599_999, claimMs: 600_000 })).claimed, false);
+  assert.equal((await call('claimBundleCheck', { now: dueAt + 3_600_000, claimMs: 600_000 })).claimed, true);
+
+  // Bundles without Waitlist games are remembered, never planned.
+  assert.deepEqual((await call('unknownBundles', {
+    keys: ['bundle:1', 'bundle:5', 'bundle:6', 'bundle:5', 'bundle:7'],
+  })).keys, ['bundle:5', 'bundle:6', 'bundle:7']);
+  await call('recordBundlesSeen', { keys: ['bundle:5', 'bundle:5'], now: bundleAt + 10 });
+  assert.deepEqual((await call('unknownBundles', { keys: ['bundle:5', 'bundle:6', 'bundle:7'] })).keys,
+    ['bundle:6', 'bundle:7']);
+  assert.deepEqual((await knownBundles()).find(row => row.notification_id === 'bundle:5'),
+    { notification_id: 'bundle:5', source: 'new' });
+  assert.equal((await call('plan', { id: 'bundle:5' })).plan, null);
+  assert.deepEqual((await call('parts', { id: 'bundle:5' })).parts, []);
+
+  // Rich plans keep their format; plain-text plans keep the default.
+  const richId = uuid(20);
+  assert.deepEqual((await call('discover', { ids: [richId], now: bundleAt + 20 })).pending, [richId]);
+  const richParts = [
+    '<p><b>ITAD · Waitlist</b> · 1 juego en oferta</p>',
+    '<p>Resto del aviso con enlace https://example.invalid/x?a=1&amp;b=2</p>',
+  ];
+  await call('savePlan', { id: richId, detail: detail(richId), parts: richParts, format: 'markdown' }, 409);
+  assert.deepEqual((await call('plan', { id: richId })).plan, null, 'an invalid format plans nothing');
+  await call('savePlan', { id: richId, detail: detail(richId), parts: richParts, format: 'rich_html' });
+  assert.deepEqual((await call('partFormats', { id: richId })).parts.map(part => part.format), ['rich_html', 'rich_html']);
+  assert.deepEqual((await call('partFormats', { id: newId })).parts.map(part => part.format), ['text', 'text', 'text']);
+
+  // A bundle notice and all its parts are planned in one atomic batch.
+  const notice6 = bundleNotice(6);
+  const bundleParts = [
+    '<p><b>ITAD · Bundle</b> · incluye 1 juego de tu Waitlist</p><h3>Bundle ficticio ñ</h3>',
+    '<p>(continuación) https://example.invalid/bundle/6?a=affiliate-fixture&amp;b=2</p>',
+  ];
+  await call('failPlanAtPart', { index: 1 });
+  const failedBundlePlan = await localPost({
+    action: 'saveBundlePlan', key: 'bundle:6', notice: notice6, parts: bundleParts, now: bundleAt + 30,
+  });
+  assert.notEqual(failedBundlePlan.status, 200, 'bundle plan batch failure must reject');
+  assert.deepEqual((await call('unknownBundles', { keys: ['bundle:6'] })).keys, ['bundle:6'],
+    'a failed bundle plan leaves the bundle unknown so the next check retries it');
+  assert.equal((await call('plan', { id: 'bundle:6' })).plan, null);
+  assert.deepEqual((await call('parts', { id: 'bundle:6' })).parts, []);
+  await call('clearPlanFailure');
+  const planners = await Promise.all([1, 2, 3].map(() => call('saveBundlePlan', {
+    key: 'bundle:6', notice: notice6, parts: bundleParts, now: bundleAt + 31,
+  })));
+  assert.equal(planners.filter(item => item.saved === true).length, 1, JSON.stringify(planners));
+  assert.deepEqual((await call('plan', { id: 'bundle:6' })).plan, { detail: notice6, parts: bundleParts });
+  assert.equal((await call('parts', { id: 'bundle:6' })).parts.length, bundleParts.length,
+    'concurrent plans never duplicate parts');
+  assert.deepEqual((await call('partFormats', { id: 'bundle:6' })).parts.map(part => part.format),
+    ['rich_html', 'rich_html']);
+  assert.equal((await call('saveBundlePlan', {
+    key: 'bundle:6', notice: notice6, parts: ['<p>otro</p>'], now: bundleAt + 32,
+  })).saved, false, 'a repeat never replaces a saved plan');
+  assert.deepEqual((await call('plan', { id: 'bundle:6' })).plan, { detail: notice6, parts: bundleParts });
+  assert.equal((await call('saveBundlePlan', {
+    key: 'bundle:1', notice: bundleNotice(1), parts: bundleParts, now: bundleAt + 33,
+  })).saved, false, 'a baseline bundle is never notified');
+  assert.equal((await call('plan', { id: 'bundle:1' })).plan, null);
+  assert.deepEqual((await knownBundles()).find(row => row.notification_id === 'bundle:1'),
+    { notification_id: 'bundle:1', source: 'baseline' });
+  await call('saveBundlePlan', { key: 'bundle:7', notice: bundleNotice(7), parts: [], now: bundleAt + 34 }, 409);
+  await call('saveBundlePlan', { key: uuid(1), notice: bundleNotice(7), parts: bundleParts, now: bundleAt + 34 }, 409);
+  assert.deepEqual((await call('unknownBundles', { keys: ['bundle:7'] })).keys, ['bundle:7']);
+
+  // Everything above is durable: a restart neither repeats the baseline nor loses plans.
+  await stopWorker();
+  await startWorker();
+  assert.equal((await call('bundleBaselineComplete')).complete, true);
+  assert.equal((await call('bundleBaseline', {
+    keys: ['bundle:98'], now: bundleAt + 40, nextCheckAt: bundleAt + 40,
+  })).result, 'already-initialized');
+  assert.equal((await call('bundleState')).rows[0].next_check_at, dueAt + 3_600_000 + 600_000);
+  assert.deepEqual((await call('plan', { id: 'bundle:6' })).plan, { detail: notice6, parts: bundleParts });
+  assert.deepEqual((await call('unknownBundles', { keys: ['bundle:1', 'bundle:5', 'bundle:6', 'bundle:7'] })).keys,
+    ['bundle:7']);
+
+  // Delivery follows planning order (bundles queue behind earlier notices) and keeps each part's format.
+  const drainAt = now + 20_000_000;
+  const drained = [];
+  for (let step = 0; step < 20; step++) {
+    const { candidate } = await call('nextDelivery');
+    if (candidate === null) break;
+    drained.push(`${candidate.notificationId}#${candidate.partIndex}/${candidate.partCount}:${candidate.format}`);
+    const claimed = await call('claimPart', {
+      id: candidate.notificationId, index: candidate.partIndex, owner: 'drain-worker', now: drainAt,
+    });
+    assert.equal(claimed.status, 'claimed', JSON.stringify(claimed));
+    assert.equal((await call('confirmPart', {
+      claim: claimed.claim, receipt: `drain-${step}`, now: drainAt + 1,
+    })).confirmed, true);
+  }
+  assert.deepEqual(drained, [
+    `${newId}#1/3:text`, `${newId}#2/3:text`, `${failedDetailId}#0/1:text`,
+    `${richId}#0/2:rich_html`, `${richId}#1/2:rich_html`,
+    'bundle:6#0/2:rich_html', 'bundle:6#1/2:rich_html',
+  ]);
+  assert.equal((await call('nextDelivery')).candidate, null);
+  console.log('D1 local: 1 suite passed; baseline rollback/one-time/restart, durable pending plan/receipts, leases/CAS/expiry, AES-GCM OAuth rotation/tamper, I6 poll gate (one owner, takeover after 120 s, stale complete rejected, not_due) and bundle storage (atomic one-time baseline, hourly CAS claim, seen/known keys, atomic rich plans, restart, planned delivery order) checks passed.');
 }
 
 try {

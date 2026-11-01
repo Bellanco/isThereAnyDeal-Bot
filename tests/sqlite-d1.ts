@@ -4,6 +4,7 @@ import migration1 from '../migrations/0001_i4_storage.sql?raw';
 import migration2 from '../migrations/0002_i5_delivery.sql?raw';
 import migration3 from '../migrations/0003_i6_detail_claims.sql?raw';
 import migration4 from '../migrations/0004_i6_poll_gate.sql?raw';
+import migration5 from '../migrations/0005_rich_bundles.sql?raw';
 
 /**
  * Unit-test stand-in for D1 over node:sqlite with the real migrations. Batches are
@@ -21,6 +22,7 @@ export function createTestDatabase(): TestDatabase {
   raw.exec(migration2);
   raw.exec(migration3);
   raw.exec(migration4);
+  raw.exec(migration5);
   const database: TestDatabase = {
     raw,
     failWhen: null,

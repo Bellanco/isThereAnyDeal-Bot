@@ -1,8 +1,114 @@
-# I7 — Preparacion de produccion; I8–I9 MANUALES y pendientes
+# Operación — producción anterior y actualización Rich/bundles
 
-**No desplegado. No cuentas, OAuth, migraciones remotas ni Telegram ejecutados
-en I7.** Alojamiento acordado: Cloudflare Workers + D1; TypeScript, HTTP nativo,
-sin nuevas dependencias. La capacidad cloud sigue sin verificar.
+**Rediseño Rich/bundles NO desplegado ni render real verificado.** Producción
+anterior activa según evidencia aportada por el usuario: baseline de 23 avisos,
+tick cada minuto, recuperación de sesión OAuth. No se ha vuelto a consultar
+cloud en este cierre. Cloudflare Workers + D1, TypeScript, HTTP nativo y sin
+nuevas dependencias. CPU/cuotas Free del rediseño siguen pendientes.
+
+Las secciones I7/I8/I9 de instalación inicial y su validación al final son
+**históricas**, no instrucciones para crear de nuevo la DB, baseline o bot.
+Su "no ejecutado en I7" no niega la evidencia posterior del usuario. Para la
+instalación existente usar el procedimiento siguiente; cada paso cloud necesita
+su propia confirmación, no se autoriza por haber aprobado el diseño.
+
+## Actualización Rich y bundles sobre producción existente
+
+**Preparado local:** Rich HTML `sendRichMessage`, banners opcionales,
+conservación íntegra de ofertas y enlaces, bundles completos con marcas y
+migración `0005_rich_bundles.sql`. Avisos OAuth cada 5 min, tick de entrega
+1 min. Bundles **ES**, **mature=true**, cada **60 min**: cruce separado del
+feed oficial con Waitlist, no reglas oficiales de notificación de bundles.
+
+1. **Validar offline**, sin leer secretos: tests/typecheck/D1 local/cron/dry-run
+   listados abajo. `check:prod` sobre plantilla debe rechazar placeholders;
+   sobre copia pública apagada completa debe pasar. Sobre copia activa necesita
+   `--activate`, solo check offline, nunca permiso para desplegar.
+2. **Pedir permiso de parada y deploy apagado.** Usuario cambia la copia pública
+   existente a `LIVE_DELIVERY=disabled`, `crons=[]`, conserva cuenta/DB/nombres/
+   callback/versión AES. Verificar con `check:prod` y desplegar **config apagada
+   antes de reautorizar** (procedimiento de parada §10). No basta editar el archivo.
+   Verificar propagación del cron en dashboard y drenar invocaciones en curso:
+   ninguna activa y reservas caducadas 120 s después de última actividad.
+   Pendientes D1 se conservan, no se borran para "vaciar". `oauth_reauth` solo
+   no para entregas, por eso se exige parada total.
+3. **Pedir permiso independiente de migración D1 remota.** Revisar pendientes
+   con `d1 migrations list`, aplicar **0005 remoto antes del nuevo deploy**,
+   comprobar lista de aplicadas (§4). No recrear DB ni reaplicar SQL manual.
+   Si falla, parar y revisar; no desplegar rediseño contra esquema antiguo.
+4. **Pedir permiso de secreto.** Usuario introduce `ITAD_API_KEY` mediante el
+   prompt oculto de Wrangler con Worker apagado. Es opcional: sin key, bundles
+   off y avisos continúan. Nunca en config pública, argv, chat o fichero.
+   `node $w secret put ITAD_API_KEY --config $cfg` es operación cloud, **no
+   ejecutada ni autorizada en este encargo**; `secret put` puede desplegar
+   versión, verificar que siga apagada. API key no sustituye OAuth.
+5. **Pedir permiso OAuth real + lectura/escritura D1 remota.** Usuario ejecuta
+   `npm run oauth:operator -- --config wrangler.production.local.jsonc --mode reauthorize --live`
+   tras confirmar parada/drenaje. La CLI ya solicita
+   **`notifications wait_read coll_read`** y valida scopes. Conservar la clave
+   **AES y versión actuales**; ampliar scopes no requiere rotarlas.
+   Solo cambiarlas por recuperación/compromiso mediante §12. Reemplazo CAS
+   conserva baseline 23, IDs y recibos. Resultado ambiguo: usar `status` con
+   permiso y revisar, no repetir OAuth a ciegas.
+6. **Pedir permiso de nuevo deploy apagado.** Config revisada sin extras ni
+   secretos en vars, misma DB y clave/sesión compatibles con 0005. Comprobar
+   versión, triggers apagados y estado agregado. No hay migración inversa ni
+   rollback automático; planes de texto existentes seguirán como texto.
+7. **Solo por permiso explícito de reactivación**, revisar gate CPU/cuotas,
+   habilitar `LIVE_DELIVERY=enabled` y cron `* * * * *`, check `--activate`,
+   deploy y observación autorizada. Verificar avisos/cola y baseline bundles
+   único sin envíos históricos; no resetear baseline ni gate.
+8. **Permisos de comprobación real separados:** render móvil con los tres
+   ejemplos del script, moneda real con country ES, CPU Free Rich/bundles,
+   continuidad/refresh/recibos y oferta natural con correo desactivado.
+   No afirmar entrega ni independencia del correo por un deploy o preview.
+
+No ejecutar pasos siguientes si el anterior carece de evidencia/confirmación.
+El agente no ha ejecutado comandos cloud, OAuth ni envíos reales en este cierre.
+
+### Preview móvil sin tocar producción
+
+```powershell
+npm run preview:telegram -- --dry-run
+npm run preview:telegram -- --dry-run --no-banner
+npm test -- tests/telegram-preview.test.mjs
+# Solo el usuario tras autorizar 3 mensajes y en consola privada TTY:
+npm run preview:telegram -- --live
+```
+
+Token/chat de entrada oculta, validación y confirmación exacta
+`ENVIAR 3 EJEMPLOS`; no opciones/env/archivos de secretos. Formateadores,
+validadores y cliente Telegram reales compilados en temporal propio, sin D1
+ni cloud. Dry-run imprime HTML, no render exacto del cliente Telegram.
+Ejemplos: banner/precios/mínimo; varias tiendas/DLC/cupón/caducidad/adultos;
+bundle tres niveles/nota/caducidad/Waitlist+Colección. Títulos/tiendas inventados,
+compras en example.com, enlaces ITAD por slugs ficticios que pueden no existir.
+Banner conocido HTTP 200 `https://placehold.co/600x280/2b3a55/ffffff/png?text=Nebula+Drifters`
+depende de tercero/Telegram; no se reconsultó. `--no-banner` lo omite.
+~1 s entre envíos; primer fallo detiene, informa confirmados y espera mínima 429.
+Sin reintentos ambiguos ni persistencia/dedup: relanzar duplica confirmados y
+el intento fallido pudo llegar. 400 con imagen permite un fallback sin imagen;
+400 persistente detiene. No mostrar URL con token/respuestas/ID de chat.
+Temporal propio borrado en finally; limpieza fallida es explícita y exit no cero,
+sin invalidar confirmaciones previas. No garantía de borrado físico en JS.
+
+### Riesgos y señales de operación del rediseño
+
+Sin key: `bundles.state=off`; key + OAuth antiguo `notifications`: avisos
+siguen, banners ausentes y bundles `scope_missing` hasta reautorizar `wait_read`.
+`coll_read` permite marcas de Colección, best effort: fallo solo quita marcas.
+`warnings` indica `banners_<categoría>` / `collection_<categoría>`; no confundir
+decoración ausente con entrega perdida. `bundles` informa estado/listados/
+baseline/vistos/planificados/inválidos; `calls` añade `itadWaitlistGames`,
+`itadCollection`, `itadBundles`. Revisar `errors`, `queue`, `sent`, bloqueos y
+edad de cola, no solo `planned`. [Detalle y mediciones locales](I5.md).
+
+Todos los juegos/niveles se conservan. Mismo ID relanzado no es nuevo; después
+del baseline solo se leen **50 recientes**, recuperación tras parada larga
+limitada. Pertenencia se evalúa al detectar, no retroactiva. 400 banner hace
+fallback sin imágenes; 400 persistente bloquea parte. Recibo confirmado no se
+repite, pero ack/persistencia perdidos pueden duplicar; `unverified` requiere
+revisión manual. Moneda ES, CPU Free, render e independencia del correo pendientes.
 
 ## 1. Archivos y contrato de seguridad
 
@@ -25,13 +131,14 @@ sin nuevas dependencias. La capacidad cloud sigue sin verificar.
 | --- | --- |
 | `APP_MODE` | var publica: `production` |
 | `LIVE_DELIVERY` | var: `disabled` en preparacion; `enabled` solo con permiso I9 |
-| `DB` | binding D1 con las cuatro migraciones |
+| `DB` | binding D1 con migraciones 0001–0005 para el rediseño |
 | `OAUTH_CLIENT_ID` | var: Client ID publico de la app compatible |
 | `OAUTH_REDIRECT_URI` | var: callback EXACTO registrado, HTTP `127.0.0.1` con puerto explicito, sin query/fragmento/credenciales |
 | `OAUTH_TOKEN_KEY_VERSION` | var: identificador de clave, 1–32 caracteres `[A-Za-z0-9._-]` |
 | `OAUTH_TOKEN_KEY` | Workers secret: AES de 32 bytes, Base64 estandar; nunca D1 ni var |
 | `TELEGRAM_BOT_TOKEN` | Workers secret; token del bot, nunca URL mostrada |
 | `TELEGRAM_CHAT_ID` | Workers secret por privacidad: entero positivo de chat privado, <= 2^52 |
+| `ITAD_API_KEY` | Workers secret opcional; sin key bundles off |
 
 No anadir `OAUTH_CLIENT_SECRET`, access/refresh tokens como bindings, mocks,
 bindings administrativos ni variables extra. La composicion usa OAuth
@@ -222,14 +329,15 @@ node $w d1 execute DB --remote --config $cfg --command "SELECT name FROM d1_migr
 
 Revisar confirmacion interactiva, no usar CI ni aprobacion automatica. Se
 esperan `0001_i4_storage.sql`, `0002_i5_delivery.sql`,
-`0003_i6_detail_claims.sql`, `0004_i6_poll_gate.sql`, en orden. `list` muestra
-PENDIENTES, no todas las aplicadas. No ejecutar las cuatro SQL manualmente:
+`0003_i6_detail_claims.sql`, `0004_i6_poll_gate.sql`, `0005_rich_bundles.sql`,
+en orden. `list` muestra
+PENDIENTES, no todas las aplicadas. No ejecutar las SQL manualmente:
 `ALTER TABLE` de 0002/0003 no es repetible. Un fallo revierte la migracion
 fallida, no las anteriores; revisar antes de reintentar.
 
 ## 5. I8 — provisioning y reautorizacion OAuth local
 
-Existe `npm run oauth:operator`, pero **no se ha ejecutado**. Es una herramienta
+Existe `npm run oauth:operator`; no se ejecutó en I7 ni en este cierre. Es una herramienta
 opt-in: sin `--live`, configuracion production local sin placeholders y una
 confirmacion interactiva exacta, falla sin iniciar OAuth ni acceder a D1.
 Solo admite OAuth public PKCE y el callback registrado exacto en
@@ -238,7 +346,7 @@ Telegram ni importacion SQL.
 
 Precondiciones operativas que la herramienta no puede demostrar por si sola:
 
-- D1 remota creada y migraciones 0001–0004 aplicadas; Cloudflare autenticado con
+- D1 remota creada y migraciones 0001–0005 aplicadas para rediseño; Cloudflare autenticado con
   `wrangler login` guardado localmente (la herramienta no hereda tokens API de
   entorno).
 - Confirmar en dashboard que el Worker desplegado tiene `LIVE_DELIVERY=disabled`,
@@ -366,7 +474,7 @@ node $w secret list --config $cfg
 ```
 
 `secret list` muestra nombres/tipos, NO prueba valores correctos. Deben existir
-solo los tres secretos previstos en el entorno Worker; extras tambien pueden
+los tres secretos requeridos y, opcionalmente, `ITAD_API_KEY`; extras pueden
 hacer rechazar `Env`. No usar `--secrets-file`, `--keep-vars`, secretos en vars,
 ni credenciales como argumentos. Cliente publico/version/callback se despliegan
 desde el config, no `secret put`. No afirmar salud sin sobre OAuth validado.
@@ -427,7 +535,8 @@ node $w tail --config $cfg --format json
 Detener tail con Ctrl+C. Cron puede tardar en propagarse; observar dashboard
 y varias invocaciones, no llamar `/__scheduled` remotamente. Primera lista
 VALIDA crea baseline actual, sin mandar historicos (no la antigua lista de
-23). Desde ese punto los IDs nuevos se guardan aunque tengan `read=true`.
+23). En instalación existente conservar el baseline 23, no repetirlo.
+Desde ese punto los IDs nuevos se guardan aunque tengan `read` fecha o `null`.
 No borrar baseline ni resetear gate para acelerar. Primera sincronizacion
 con error no es baseline vacio. I9 integrado requiere evidencia de cron,
 baseline unico, persistencia, y refresh durable; si no ocurre refresh en la
@@ -445,7 +554,8 @@ node $w d1 execute DB --remote --config $cfg --command "SELECT next_poll_at, lea
 
 No `SELECT *` sobre OAuth, planes, mensajes ni export total para diagnostico.
 Logs de aplicacion: `bridge_cycle`, `bridge_cycle_failed`, `ok`, `poll`,
-`pollGate`, `nextPollInSeconds`, `calls`, `queue`, categorias e indicadores.
+`pollGate`, `nextPollInSeconds`, `calls`, `queue`, `bundles`, `warnings`,
+categorías e indicadores.
 Revisar edad de pendientes y bloqueos, no solo contador de envios.
 Conectividad: baseline/lista valida prueba ITAD; refresh con version persistida
 prueba continuidad en ese momento; recibo validado prueba Telegram.
@@ -598,7 +708,7 @@ retencion y alertas presupuestarias disponibles. Sin dominio publico necesario,
 no se preparo gasto de dominio/tunel/servidor. El crecimiento de DB y retencion
 desconocida ITAD impiden prometer capacidad ilimitada o recuperacion eterna.
 
-## 14. Validacion I7 local realizada
+## 14. Validación I7 local realizada (histórica)
 
 Wrangler instalado: **4.153.0**, sin instalar herramientas ni esbuild directo.
 Sintaxis comprobada mediante `--help`: login/whoami, d1 create/execute,
@@ -630,3 +740,34 @@ despues de esos gates se comprueban baseline, ticks/gate >=300 s,
 recibos/backlog/reinicio/refresh persistido en cloud.
 **Parar tras preparacion: no se ejecuto OAuth, binding remoto, escritura D1,
 deployment, cron ni mensaje Telegram.**
+
+## 15. Cierre local Rich/bundles y preview — 2026-11-01
+
+Archivos de este cierre: `scripts/telegram-preview.mjs` (nuevo),
+`tests/telegram-preview.test.mjs` (nuevo), `package.json` (`preview:telegram`),
+`README.md`, `docs/I5.md`, `docs/I7-operacion.md`. Sin cambios adicionales a
+fuentes del puente ni a migración 0005; no se ha repetido investigación histórica.
+
+| Comprobación ejecutada | Resultado real |
+| --- | --- |
+| `npm run typecheck` | exit 0 |
+| `npm test` | **612/612**, 16 archivos, exit 0; incluye **31** pruebas preview y 12 de simulación grande |
+| `npm run test:d1` | 1 suite local pasada, migraciones/planes Rich/bundles/CAS/reinicio, exit 0 |
+| `npm run test:cron` | 1 suite local pasada; Rich 20 partes en 7 ticks `[3,3,3,3,3,3,2]`, baseline bundles y marcas, reinicio/solapamiento/429/403; drenaje medido 19.400 ms local |
+| `npm run dry-run:prod` | exit 0, 140,23 KiB / gzip 32,49 KiB, plantilla apagada, sin deploy |
+| `npm run check:prod -- --config wrangler.production.jsonc` | exit 1 **esperado**, `production_config_rejected:placeholders` |
+| `npm run check:prod -- --config wrangler.production.local.jsonc --activate` | exit 0, `production_config_valid_offline_only`; sin mostrar contenidos, no prueba cloud |
+| `node --check scripts/telegram-preview.mjs` y `node --check tests/telegram-preview.test.mjs` | exit 0 |
+| CLI preview `--dry-run` y `--dry-run --no-banner` | cada una exit 0, tres ejemplos, sin imagen con `--no-banner`; transporte live no usado |
+
+Verificados archivos persistentes y **0** temporales `itad-telegram-preview-*`
+restantes. Primer pase focalizado detectó un error de parametrización `it.each`
+en las nuevas pruebas (8 fallos); corregido antes del pase completo final.
+Las pruebas live del script inyectan transporte **simulado**, no tokens reales.
+No instalación de dependencias, commit/push, lectura de archivos de secretos,
+OAuth real, deploy, operación cloud ni mensaje real en este encargo.
+
+**Siguen externos:** pasos autorizados de actualización anteriores, render móvil,
+moneda ES, CPU/cuotas Free, continuidad real y aviso natural con correo
+desactivado. Producción anterior activa solo según evidencia del usuario;
+rediseño local no desplegado. Este cierre no confirma estado remoto nuevo.

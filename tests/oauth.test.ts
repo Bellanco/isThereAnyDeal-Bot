@@ -61,7 +61,7 @@ describe('OAuth standard grant contracts I2 (not real ITAD evidence)', () => {
     const tokens = await new OAuthClient(config, transport, () => 1000).exchange('mock-code', verifier);
     expect(tokens).toEqual({
       accessToken: officialToken.access_token, refreshToken: officialToken.refresh_token,
-      expiresAt: 3_601_000, scope: 'notifications',
+      expiresAt: 3_601_000, scope: 'notifications wait_read coll_read',
     });
     expect(transport).toHaveBeenCalledTimes(1);
   });
@@ -106,8 +106,13 @@ describe('OAuth standard grant contracts I2 (not real ITAD evidence)', () => {
       access_token: 'mock-access', token_type: 'bEaReR', ignored: 'unused',
     }));
     expect(await client.exchange('mock-code', verifier)).toEqual({
-      accessToken: 'mock-access', refreshToken: null, expiresAt: null, scope: 'notifications',
+      accessToken: 'mock-access', refreshToken: null, expiresAt: null, scope: 'notifications wait_read coll_read',
     });
+  });
+
+  it('accepts a narrower granted scope than requested as long as it includes notifications', async () => {
+    const client = new OAuthClient(config, async () => json({ ...success, scope: 'notifications' }));
+    expect((await client.exchange('mock-code', verifier)).scope).toBe('notifications');
   });
 
   it.each(['invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client', 'unsupported_grant_type', 'invalid_scope'])(
@@ -187,7 +192,7 @@ describe('temporary PKCE/state and loopback instrument (no listener)', () => {
     expect(query.get('response_type')).toBe('code');
     expect(query.get('client_id')).toBe(config.clientId);
     expect(query.get('redirect_uri')).toBe(redirect);
-    expect(query.get('scope')).toBe('notifications');
+    expect(query.get('scope')).toBe('notifications wait_read coll_read');
     expect(query.get('code_challenge_method')).toBe('S256');
     expect(query.get('state')).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(query.has('code_verifier')).toBe(false);

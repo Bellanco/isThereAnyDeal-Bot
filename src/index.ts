@@ -46,7 +46,7 @@ export interface WorkerOptions {
 const LOCAL_KEYS = new Set(['APP_MODE', 'DB', 'SIMULATION_TELEGRAM_FAILURE', 'SIMULATION_FAIL_AT']);
 const PRODUCTION_KEYS = new Set([
   'APP_MODE', 'LIVE_DELIVERY', 'DB', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'OAUTH_CLIENT_ID',
-  'OAUTH_REDIRECT_URI', 'OAUTH_TOKEN_KEY', 'OAUTH_TOKEN_KEY_VERSION',
+  'OAUTH_REDIRECT_URI', 'OAUTH_TOKEN_KEY', 'OAUTH_TOKEN_KEY_VERSION', 'ITAD_API_KEY',
 ]);
 
 class ScheduledConfigurationError extends Error {
@@ -64,6 +64,11 @@ function database(value: unknown): D1Database {
 
 function owner(): string {
   return `cron-${crypto.randomUUID()}`;
+}
+
+/** The bundle feed exists only when the application key is configured. */
+function bundleFeed(itad: ItadClient, enabled: boolean) {
+  return enabled ? { bundles: { list: (offset: number, limit: number) => itad.bundles(offset, limit) } } : {};
 }
 
 export function createWorker(options: WorkerOptions = {}) {
@@ -87,9 +92,10 @@ export function createWorker(options: WorkerOptions = {}) {
     const sim = simulation.value;
     const storage = await D1Storage.create(db, LOCAL_SIMULATION.tokenKey, LOCAL_SIMULATION.keyVersion);
     if (await storage.oauthSessionVersion() === null) await storage.initializeOAuthTokens(sim.seedTokens(now()));
+    const itad = new ItadClient(sim.transport, { apiKey: LOCAL_SIMULATION.apiKey });
     return runTick({
       storage, now, sleep, owner: owner(), ...(options.limits ? { limits: options.limits } : {}),
-      itad: new ItadClient(sim.transport),
+      itad, ...bundleFeed(itad, true),
       oauth: new OAuthClient(LOCAL_SIMULATION.oauth, sim.transport, now),
       telegram: new TelegramClient(sim.transport, LOCAL_SIMULATION.botToken, LOCAL_SIMULATION.chatId),
     });
@@ -113,6 +119,16 @@ export function createWorker(options: WorkerOptions = {}) {
     } catch {
       throw new ScheduledConfigurationError();
     }
+    const transport: HttpTransport = options.liveTransport ?? (request => fetch(request));
+    // Optional application key: without it only the bundle notices are off.
+    const apiKey = env.ITAD_API_KEY;
+    let itad: ItadClient;
+    try {
+      if (apiKey !== undefined && typeof apiKey !== 'string') throw new ScheduledConfigurationError();
+      itad = new ItadClient(transport, apiKey === undefined ? {} : { apiKey });
+    } catch {
+      throw new ScheduledConfigurationError();
+    }
     const db = database(env.DB);
     let storage: D1Storage;
     try {
@@ -120,10 +136,9 @@ export function createWorker(options: WorkerOptions = {}) {
     } catch {
       throw new ScheduledConfigurationError();
     }
-    const transport: HttpTransport = options.liveTransport ?? (request => fetch(request));
     return runTick({
       storage, now, sleep, owner: owner(), ...(options.limits ? { limits: options.limits } : {}),
-      itad: new ItadClient(transport),
+      itad, ...bundleFeed(itad, apiKey !== undefined),
       oauth: new OAuthClient(oauthConfig, transport, now),
       telegram: new TelegramClient(transport, env.TELEGRAM_BOT_TOKEN, chatId),
     });

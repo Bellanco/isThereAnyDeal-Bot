@@ -10,6 +10,7 @@
     "test:d1": "node tests/d1.integration.mjs",
     "test:cron": "node tests/cron.integration.mjs",
     "oauth:operator": "node scripts/oauth-provision.mjs",
+    "preview:telegram": "node scripts/telegram-preview.mjs",
     "db:local:migrate": "wrangler d1 migrations apply itad-local-integration --local --config wrangler.local-integration.jsonc",
     "dev:cron": "wrangler dev --local --ip 127.0.0.1 --test-scheduled --config wrangler.local-integration.jsonc",
     "typecheck": "tsc --noEmit",

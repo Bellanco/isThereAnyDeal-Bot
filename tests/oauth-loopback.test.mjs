@@ -58,7 +58,7 @@ describe('OAuth provisioning loopback adapter', () => {
         .toBe('https://isthereanydeal.com/oauth/authorize/');
       expect(authorization.searchParams.get('response_type')).toBe('code');
       expect(authorization.searchParams.get('client_id')).toBe('public-client');
-      expect(authorization.searchParams.get('scope')).toBe('notifications');
+      expect(authorization.searchParams.get('scope')).toBe('notifications wait_read coll_read');
       expect(authorization.searchParams.get('code_challenge_method')).toBe('S256');
       const state = authorization.searchParams.get('state');
       expect(state).toMatch(/^[A-Za-z0-9_-]{43}$/);

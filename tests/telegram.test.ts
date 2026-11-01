@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_TEXT } from '../src/domain';
 import { HTTP_TIMEOUT_MS } from '../src/itad-http';
+import { MAX_RICH_BYTES } from '../src/rich';
 import {
   parsePrivateChatId, RATE_LIMIT_FALLBACK_SECONDS, TelegramClient, TelegramConfigurationError, TelegramError,
 } from '../src/telegram';
@@ -134,5 +135,100 @@ describe('Telegram sendMessage contract', () => {
       expect(() => parsePrivateChatId(chat)).toThrow(TelegramConfigurationError);
     }
     expect(parsePrivateChatId('123456789')).toBe(123456789);
+  });
+});
+
+describe('Telegram sendRichMessage contract', () => {
+  const html = '<p>Hola</p><img src="https://cdn.example/b.jpg?a=1&amp;b=2"/><p>Fin</p>';
+  const badRequest = () => reply({ ok: false, error_code: 400, description: 'Bad Request: x' }, 400);
+
+  async function richFailure(response: Response): Promise<TelegramError> {
+    const client = new TelegramClient(async () => response, TOKEN, CHAT);
+    try {
+      await client.sendRich('<p>hola</p>');
+    } catch (error) {
+      expect(error).toBeInstanceOf(TelegramError);
+      expect(JSON.stringify(error)).not.toContain(TOKEN);
+      return error as TelegramError;
+    }
+    throw new Error('expected failure');
+  }
+
+  it('posts the HTML only to the configured chat, with entity detection off and nothing else', async () => {
+    const transport = vi.fn(async (_request: Request) => reply(success()));
+    const receipt = await new TelegramClient(transport, TOKEN, CHAT).sendRich(html);
+    expect(receipt).toEqual({ messageId: 77 });
+    const request = transport.mock.calls[0]![0];
+    expect(request.method).toBe('POST');
+    expect(request.url).toBe(`https://api.telegram.org/bot${TOKEN}/sendRichMessage`);
+    expect(request.headers.get('content-type')).toBe('application/json');
+    expect(await request.json()).toEqual({ chat_id: CHAT, rich_message: { html, skip_entity_detection: true } });
+    expect(request.redirect).toBe('manual');
+    expect(request.cache).toBe('no-store');
+  });
+
+  it.each([
+    [429, 'rate_limit', 'flood'], [500, 'transient', 'http_5xx'], [400, 'rejected', 'bad_request'],
+    [401, 'destination', 'unauthorized'], [403, 'destination', 'forbidden'], [404, 'destination', 'not_found'],
+  ])('classifies HTTP %i like sendMessage, without exposing the description', async (status, category, reason) => {
+    const error = await richFailure(reply({
+      ok: false, error_code: status, description: `secret ${TOKEN}`, parameters: { retry_after: 3 },
+    }, status));
+    expect([error.category, error.reason, error.status]).toEqual([category, reason, status]);
+    expect(error.message).not.toContain('secret');
+    if (status === 429) expect(error.retryAfterSeconds).toBe(3);
+  });
+
+  it('does not accept a success for another chat or without a usable message id', async () => {
+    expect((await richFailure(reply(success({ chat: { id: CHAT + 1, type: 'private' } })))).reason).toBe('chat_mismatch');
+    expect((await richFailure(reply(success({ message_id: 0 })))).reason).toBe('message_id');
+    expect((await richFailure(reply('<html>'))).category).toBe('unverified');
+  });
+
+  it('validates the HTML and its UTF-8 size before any request', async () => {
+    const transport = vi.fn(async () => reply(success()));
+    const client = new TelegramClient(transport, TOKEN, CHAT);
+    // Two bytes per character: fewer characters than the limit, more bytes.
+    for (const value of ['', '\uD800', 'x'.repeat(MAX_RICH_BYTES + 1), 'ñ'.repeat(MAX_RICH_BYTES / 2 + 1)]) {
+      await expect(client.sendRich(value)).rejects.toMatchObject({ category: 'input', reason: 'text' });
+    }
+    expect(transport).not.toHaveBeenCalled();
+    await expect(client.sendRich('x'.repeat(MAX_RICH_BYTES))).resolves.toEqual({ messageId: 77 });
+    await expect(client.sendRich('ñ'.repeat(MAX_RICH_BYTES / 2))).resolves.toEqual({ messageId: 77 });
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries once without the images when Telegram refuses a message that has them', async () => {
+    const transport = vi.fn<(request: Request) => Promise<Response>>()
+      .mockResolvedValueOnce(badRequest())
+      .mockResolvedValueOnce(reply(success({ message_id: 78 })));
+    const receipt = await new TelegramClient(transport, TOKEN, CHAT).sendRich(html);
+    expect(receipt).toEqual({ messageId: 78 });
+    expect(transport).toHaveBeenCalledTimes(2);
+    const [first, second] = transport.mock.calls.map(call => call[0]);
+    expect(await first!.json()).toEqual({ chat_id: CHAT, rich_message: { html, skip_entity_detection: true } });
+    expect(await second!.json()).toEqual({
+      chat_id: CHAT, rich_message: { html: '<p>Hola</p><p>Fin</p>', skip_entity_detection: true },
+    });
+  });
+
+  it('reports the failure of the retry without images as it is', async () => {
+    const transport = vi.fn<(request: Request) => Promise<Response>>()
+      .mockResolvedValueOnce(badRequest())
+      .mockResolvedValueOnce(reply({ ok: false, error_code: 502 }, 502));
+    await expect(new TelegramClient(transport, TOKEN, CHAT).sendRich(html))
+      .rejects.toMatchObject({ category: 'transient', reason: 'http_5xx' });
+    expect(transport).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['a 400 when there is no image to remove', () => badRequest(), '<p>hola</p>', 'bad_request'],
+    ['a 5xx, because Telegram may have accepted it', () => reply({ ok: false, error_code: 502 }, 502), html, 'http_5xx'],
+    ['a 429', () => reply({ ok: false, error_code: 429, parameters: { retry_after: 4 } }, 429), html, 'flood'],
+    ['a 403', () => reply({ ok: false, error_code: 403 }, 403), html, 'forbidden'],
+  ])('does not retry after %s', async (_name, response, text, reason) => {
+    const transport = vi.fn(async (_request: Request) => response());
+    await expect(new TelegramClient(transport, TOKEN, CHAT).sendRich(text)).rejects.toMatchObject({ reason });
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 });

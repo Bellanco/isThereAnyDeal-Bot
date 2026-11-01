@@ -3,7 +3,95 @@
 Proyecto para recibir en Telegram las ofertas de la Waitlist de IsThereAnyDeal,
 sin utilizar el correo como intermediario.
 
-## I7: preparacion operativa (no desplegado)
+## Estado actual: Rich y bundles preparados localmente, NO desplegados
+
+La producción anterior está activa según la evidencia aportada por el usuario:
+baseline de **23 avisos**, tick cada minuto y sesión OAuth recuperada. No se ha
+reconsultado producción en este encargo. **El rediseño Rich y bundles NO está
+desplegado ni su render real en Telegram verificado.** Las afirmaciones de
+"no ejecutado en I7" de las secciones históricas describen aquella fase, no
+anulan la evidencia posterior. No se han realizado acciones externas en este cierre.
+
+### Diseño preparado
+
+- Avisos oficiales OAuth cada **5 min**, drenaje cada **1 min**. Rich HTML mediante
+  `sendRichMessage`: banner opcional, título, precio anterior/mínimo histórico,
+  tiendas y ofertas completas, cupón/caducidad/DRM/plataformas/DLC/adultos cuando
+  existen, botones de ITAD y compra y pie con ID/fecha/partes. Sin emojis ni tablas.
+- Bundles: feed oficial `/bundles/v2`, país **ES**, `mature=true`, cada **60 min**.
+  No hay reglas oficiales de notificación de bundles: es un cruce separado del
+  feed con la Waitlist, no una reinterpretación de los avisos oficiales.
+  Se preservan **todos los juegos y niveles**, nota, caducidad y enlaces;
+  marcas «en tu Waitlist» y «en tu Colección». Cada juego enlaza a ITAD por su slug.
+- `ITAD_API_KEY` es un secreto **opcional**; sin key, `bundles: off`.
+  Una sesión antigua con `notifications` sigue procesando avisos, sin banners.
+  Reautorizar para `notifications wait_read coll_read`: `wait_read` permite
+  banners y cruce; `coll_read` permite marcas de Colección (best effort).
+- Persistencia Rich y baseline/agenda de bundles en
+  [0005_rich_bundles.sql](migrations/0005_rich_bundles.sql). Planes antiguos de
+  texto siguen entregándose como texto; IDs/recibos/baseline anteriores se conservan.
+  Rich se divide sin truncar por presupuesto conservador de 30.000 bytes UTF-8,
+  400 bloques y 40 imágenes (límites oficiales: 32.768, 500 y 50).
+
+### Tres ejemplos ficticios para revisar en móvil
+
+```powershell
+npm run preview:telegram -- --dry-run
+npm run preview:telegram -- --dry-run --no-banner
+npm test -- tests/telegram-preview.test.mjs
+```
+
+`--dry-run` imprime tres HTML Rich usando validadores/formatters reales compilados
+en un temporal propio: (1) banner/precio anterior/mínimo, (2) varias tiendas y
+DLC/cupón/caducidad/adultos sin banner, (3) bundle de tres niveles y ambas marcas.
+No pide tokens, lee configuración privada, accede a cloud ni hace red.
+HTML en un navegador **no es el render exacto de Telegram**.
+
+Solo el usuario, en un terminal privado y tras decidir autorizar esos tres envíos:
+
+```powershell
+npm run preview:telegram -- --live
+# Alternativa sin dependencia de imagen:
+npm run preview:telegram -- --live --no-banner
+```
+
+Exige modo explícito; rechaza opciones de tokens/chat/configuración. Token e ID
+de chat privado se introducen con entrada oculta TTY, nunca por argumentos/env/
+archivo; confirmación exacta `ENVIAR 3 EJEMPLOS` antes de enviar. Se validan
+credenciales y recibos, espera ~1 s entre mensajes y se detiene al primer fallo,
+incluido 429 (informa espera mínima). No persiste ni deduplica estos ejemplos:
+relanzar repite los confirmados; un timeout/recibo inválido pudo llegar también.
+Revisar el chat antes de repetir. No hay reintentos ambiguos automáticos; el
+cliente real solo hace fallback sin imágenes ante 400 con banner; otro 400 detiene.
+Estados/errores sanitizados, sin URL con token, chat ni respuestas externas.
+El temporal se elimina en `finally`; fallo de limpieza es explícito y exit no cero,
+sin cambiar el resultado de envíos ya confirmados. Los secretos quedan solo en
+memoria (JavaScript no garantiza borrado físico); evitar transcript/proxies de logs.
+
+Títulos/tiendas son ficticios y enlaces de compra `example.com`. Slugs ficticios
+generan enlaces ITAD que **pueden no existir**. Banner placeholder conocido HTTP
+200: `https://placehold.co/600x280/2b3a55/ffffff/png?text=Nebula+Drifters`;
+depende de un tercero y de la descarga de Telegram, no se ha vuelto a consultar.
+`--no-banner` elimina esa dependencia. No se han enviado estos ejemplos realmente.
+
+### Hecho / pendiente
+
+**Hecho local:** implementación Rich/bundles, migración 0005, simulaciones,
+script y guía de actualización. [I5](docs/I5.md) explica medición y logs;
+[I7, actualización](docs/I7-operacion.md#actualización-rich-y-bundles-sobre-producción-existente)
+describe permisos paso a paso. Evidencias de este cierre se enumeran al final de I7.
+
+**Pendiente externo:** render móvil real, migración 0005 remota, API key y
+reautorización de scopes, despliegue/reactivación autorizados, moneda real con
+country ES, CPU/cuotas Workers Free con Rich/bundles, continuidad/recibos reales
+y aviso natural nuevo con correo desactivado. No hay garantía de que desactivar
+correo conserve la generación de avisos. No hay entrega exactamente una vez.
+Mismo ID de bundle relanzado no es nuevo; tras una parada larga solo se revisan
+los **50 bundles recientes**, y pertenencia Waitlist se evalúa al detectar,
+sin retroactividad. 400 persistente bloquea parte; fallos ambiguos requieren
+revisión manual antes de recuperar.
+
+## I7: referencia histórica de preparación operativa
 
 [Guia paso a paso I8–I9 y recuperacion](docs/I7-operacion.md).
 [Plantilla production](wrangler.production.jsonc) separada y apagada:
@@ -44,8 +132,9 @@ drenan las partes pendientes (3 por tick, provisional).
 
 Pruebas reales autorizadas confirmaron acceso `notifications`, lectura de 23
 avisos/detalle y un refresh OAuth exitoso que roto ambos tokens y permitio otro
-GET. La prueba fue puntual; no verifico continuidad durante dias. No quedan
-tokens almacenados. Sigue pendiente observar un aviso nuevo con el correo
+GET. La prueba I3 fue puntual; no verificó continuidad durante días. No quedaron
+tokens de esa prueba; la sesión de producción posterior está cifrada en D1.
+Sigue pendiente observar un aviso nuevo con el correo
 desactivado y comprobar su entrega integrada.
 Los contratos de notificaciones no documentan retencion/paginacion suficiente
 para prometer recuperacion tras ausencias indefinidas.
@@ -78,18 +167,19 @@ Las secciones de webhook se conservan
 como referencia de esa base, no como arquitectura elegida de produccion.
 La falta de autenticacion documentada de los POST ITAD no bloquea esta nueva ruta,
 que consulta la API oficial por HTTPS y OAuth. No publicar el receptor mock.
-No se ha desplegado ni enviado ningun mensaje real a Telegram.
+En aquella fase local no se desplegó ni envió; el estado actual figura arriba.
 
 Base ejecutable local. El flujo mock heredado y el cliente OAuth de aplicacion
 siguen sin llamadas externas; D1 se prueba solo mediante un Worker temporal de
 QA local. Decisiones confirmadas:
 TypeScript estricto, HTTP nativo de Cloudflare Workers sin framework, Wrangler
 para desarrollo local, Vitest para pruebas y Cloudflare D1 para persistencia.
-No hay bindings ni recursos D1 cloud.
+La base mock no tiene bindings cloud; producción anterior tiene D1 según evidencia del usuario.
 
 El cliente Telegram y el modo `production` existen pero fallan cerrados sin
-`LIVE_DELIVERY=enabled` y secretos; nunca se han ejecutado contra servicios
-reales. La CLI OAuth/operador existe pero no se ha ejecutado. No hay frontend,
+`LIVE_DELIVERY=enabled` y secretos; nunca se ejecutaron contra servicios
+reales en esa fase. La CLI OAuth/operador existe; la recuperación posterior fue
+aportada por el usuario. No hay frontend,
 correo, sondeo de precios ni despliegue. Los mocks no realizan llamadas
 externas. Node 24.14.1 y npm 11.11.0 se usaron
 para verificar esta base; no es necesario cambiar el runtime instalado.
@@ -127,7 +217,8 @@ permiten repetirlo a mano (ver [I5](docs/I5.md)).
 `npm run test:d1` aplica [migrations/0001_i4_storage.sql](migrations/0001_i4_storage.sql),
 [migrations/0002_i5_delivery.sql](migrations/0002_i5_delivery.sql),
 [migrations/0003_i6_detail_claims.sql](migrations/0003_i6_detail_claims.sql) y
-[migrations/0004_i6_poll_gate.sql](migrations/0004_i6_poll_gate.sql)
+[migrations/0004_i6_poll_gate.sql](migrations/0004_i6_poll_gate.sql) y
+[migrations/0005_rich_bundles.sql](migrations/0005_rich_bundles.sql)
 con `wrangler d1 execute --local` y ejecuta el adaptador contra D1 local real
 mediante una configuracion/Worker exclusivos de pruebas. Usa una carpeta temporal
 para persistencia, la elimina al terminar y no configura `--remote`, secretos ni
@@ -238,9 +329,10 @@ No filtra avisos leidos ni deduce ofertas del titulo resumido de la lista.
 mensaje si cabe. Incluye titulo de juego, tienda, precio/moneda/descuento,
 enlace intacto y, cuando existen, cupon, caducidad, DRM/plataformas y precios
 de referencia; diferencia precio habitual, anterior y minimos. Tambien muestra
-fechas e indicador ITAD sin inventar reglas de seleccion. Es texto plano, no
-una copia visual del correo. Cada parte lleva ID del aviso y contador `parte N/M`
-si hay varias; todo, incluidos encabezados, cabe en 4096 unidades UTF-16.
+fechas e indicador ITAD sin inventar reglas de seleccion. Ahora es Rich HTML, no una copia garantizada del correo ni del render móvil.
+Cada parte lleva ID del aviso y contador `parte N/M` si hay varias y respeta
+el presupuesto Rich descrito arriba. Texto plano de 4096 unidades UTF-16 sigue
+en el mock y los planes históricos.
 No rompe pares Unicode ni divide/trunca/normaliza enlaces, incluidos afiliados.
 Una URL que no cabe con encabezado se rechaza antes de cualquier envio.
 
@@ -332,7 +424,7 @@ La primera oferta recibe 503 y Retry-After; el siguiente intento se confirma.
 Los cinco tipos de fallo se simulan sin sockets ni llamadas a Telegram. No hay
 adaptador HTTP real ni se ha probado el comportamiento real de esos servicios.
 
-### Pendiente despues de I5
+### Pendiente después de I5 (histórico; actualización actual arriba)
 
 I1-I5 estan implementados en el alcance descrito, solo con simulaciones y D1
 local. Siguientes pasos:
@@ -380,14 +472,15 @@ El evento `ping` solo pertenece a la referencia webhook mock.
   tratamiento explicito de errores.
 - Ninguna lectura de correo ni consulta periodica de precios en el flujo inicial.
 
-## Configuracion futura real
+## Configuración real (referencia de instalación inicial)
 
 - Bot creado con BotFather y token de Telegram almacenado como secreto.
 - Chat de destino autorizado; para un chat privado, el usuario debe iniciar
   primero una conversacion con el bot.
 - Worker con cron (I6 local: cada minuto, consultas ITAD cada cinco minutos por la
   compuerta durable) y acceso HTTPS a ITAD y Telegram. Aplicar la migracion 0004.
-- OAuth con permiso `notifications`; refresh real se comprobo en I3. En I4 se
+- OAuth con permiso `notifications` y, para Rich/bundles, `wait_read coll_read`;
+  refresh real se comprobo en I3. En I4 se
   almacena el conjunto de tokens en D1 como sobre AES-GCM con nonce reservado
   contra reutilizacion; la clave se introduce luego como Workers secret, nunca
   en D1/vars versionadas. D1 local no demuestra configuracion cloud ni secretos.
@@ -496,6 +589,8 @@ edicion. Esa restriccion de rol no es un aislamiento de seguridad del terminal.
 - [Configuracion manual de webhooks](https://isthereanydeal.com/settings/webhooks/)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [Telegram sendMessage](https://core.telegram.org/bots/api#sendmessage)
+- [Telegram sendRichMessage](https://core.telegram.org/bots/api#sendrichmessage)
+- [Telegram InputRichMessage](https://core.telegram.org/bots/api#inputrichmessage)
 - [Telegram ResponseParameters y retry_after](https://core.telegram.org/bots/api/types/responseparameters)
 - [Esquema de juegos de notificacion](https://github.com/IsThereAnyDeal/API/blob/master/docs/routes/notifications/schemas/obj.notification.game.yaml)
 - [Esquema de ofertas de notificacion](https://github.com/IsThereAnyDeal/API/blob/master/docs/routes/notifications/schemas/obj.notification.deal.yaml)

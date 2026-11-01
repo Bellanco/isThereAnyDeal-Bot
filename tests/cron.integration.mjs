@@ -148,7 +148,7 @@ async function startWorker(vars = []) {
 }
 
 function assertSanitized(log) {
-  assert.doesNotMatch(log, /local-sim-(access|refresh)|Juego simulado|example\.invalid|sendMessage|1:local-simulation/);
+  assert.doesNotMatch(log, /local-sim-(access|refresh)|local-simulation-api-key|Juego simulado|Bundle simulado|Juego de bundle|example\.invalid|sendMessage|sendRichMessage|rich_message|1:local-simulation/);
 }
 
 /** Local time travel of the durable gate only (no lease held): the next tick is due. */
@@ -156,12 +156,24 @@ async function makePollDue() {
   await query("UPDATE poll_gate SET next_poll_at = 0 WHERE gate_key = 'itad_poll' AND owner IS NULL");
 }
 
-const ITAD_CALLS = item => item.calls.oauthRefresh + item.calls.itadList + item.calls.itadDetail;
+/** Same for the hourly bundle check (the poll gate must be due too for it to run). */
+async function makeBundlesDue() {
+  await query("UPDATE bundle_state SET next_check_at = 0 WHERE state_key = 'bundles'");
+}
+
+/** Every request to ITAD or its OAuth endpoint in one cycle (everything except Telegram). */
+const ITAD_CALLS = item => Object.entries(item.calls)
+  .filter(([name]) => name !== 'telegramSend')
+  .reduce((total, [, value]) => total + value, 0);
 
 async function counts() {
   const [row] = await query(`SELECT
-    (SELECT COUNT(*) FROM known_notifications WHERE source = 'baseline') AS baseline,
-    (SELECT COUNT(*) FROM known_notifications WHERE source = 'new') AS discovered,
+    (SELECT COUNT(*) FROM known_notifications WHERE source = 'baseline' AND notification_id NOT LIKE 'bundle:%') AS baseline,
+    (SELECT COUNT(*) FROM known_notifications WHERE source = 'new' AND notification_id NOT LIKE 'bundle:%') AS discovered,
+    (SELECT COUNT(*) FROM known_notifications WHERE source = 'baseline' AND notification_id LIKE 'bundle:%') AS bundleBaseline,
+    (SELECT COUNT(*) FROM known_notifications WHERE source = 'new' AND notification_id LIKE 'bundle:%') AS bundlesNew,
+    (SELECT COUNT(*) FROM bundle_state) AS bundleMarker,
+    (SELECT COUNT(*) FROM delivery_parts WHERE format <> 'rich_html') AS textParts,
     (SELECT COUNT(*) FROM delivery_parts WHERE status = 'confirmed') AS confirmed,
     (SELECT COUNT(DISTINCT receipt) FROM delivery_parts WHERE status = 'confirmed') AS receipts,
     (SELECT COUNT(*) FROM delivery_parts WHERE status <> 'confirmed') AS open,
@@ -189,11 +201,17 @@ async function main() {
   assert.equal(baseline.sent, 0);
   assert.equal(baseline.oauthRefreshed, true);
   assert.ok(baseline.nextPollInSeconds > 230 && baseline.nextPollInSeconds <= 300, JSON.stringify(baseline));
+  // The first bundle listing is recorded the same way: known, never notified, no Waitlist/Collection reads.
+  assert.equal(baseline.ok, true, JSON.stringify(baseline.errors));
+  assert.deepEqual(baseline.bundles, { state: 'baseline_initialized', listed: 2, baselineRecorded: 2, seen: 0, planned: 0, invalid: 0 });
+  assert.equal(baseline.calls.itadBundles, 1);
+  assert.equal(baseline.calls.itadWaitlistGames + baseline.calls.itadCollection, 0);
   assertSanitized(first.log);
 
-  // 2. Immediate next tick: not due -> no OAuth read/refresh, no ITAD list/detail at all.
+  // 2. Immediate next tick: not due -> no OAuth read/refresh, no ITAD list/detail/bundles at all.
   const idle = summaries((await scheduled()).log)[0];
   assert.equal(idle.poll, 'not_due');
+  assert.equal(idle.bundles.state, 'idle');
   assert.equal(ITAD_CALLS(idle), 0, JSON.stringify(idle));
 
   // 3. Due tick discovers simulated notice 1 (single part); next due tick discovers notice 2 (20 parts).
@@ -202,6 +220,9 @@ async function main() {
   assert.equal(small.poll, 'listed');
   assert.equal(small.calls.itadList, 1);
   assert.equal(small.detailsPlanned, 1);
+  assert.equal(small.calls.itadWaitlistGames, 1, 'banners need the Waitlist once');
+  assert.equal(small.bundles.state, 'not_due', 'the hourly bundle gate is separate from the five-minute poll');
+  assert.equal(small.calls.itadBundles, 0);
   await makePollDue();
   const progress = [];
   let started = Date.now();
@@ -220,6 +241,7 @@ async function main() {
   const drainMs = Date.now() - started;
   assert.equal(progress[0].poll, 'listed');
   assert.equal(progress[0].calls.itadDetail, 1);
+  assert.equal(progress[0].calls.itadWaitlistGames, 1);
   assert.deepEqual(progress.map(item => item.sent), [3, 3, 3, 3, 3, 3, 2], JSON.stringify(progress));
   for (const item of progress.slice(1)) {
     assert.equal(item.poll, 'not_due');
@@ -230,11 +252,17 @@ async function main() {
   let state = await counts();
   assert.equal(state.baseline, 2);
   assert.equal(state.discovered, 2);
+  assert.equal(state.bundleMarker, 1);
+  assert.equal(state.bundleBaseline, 2);
+  assert.equal(state.bundlesNew, 0, 'the bundle baseline is never notified');
+  assert.equal(state.textParts, 0, 'every planned part is Rich HTML');
   assert.equal(state.plaintext, 0);
   assert.equal(state.session, 2);
   assert.equal(state.open, 0, JSON.stringify(state));
   assert.equal(state.receipts, state.confirmed, 'every confirmed part has its own Telegram receipt');
   assert.equal(reportedSends, state.confirmed, 'every successful send was confirmed exactly once');
+  const [banner] = await query("SELECT text FROM delivery_parts WHERE notification_id = '00000000-0000-4000-a000-000000000001' AND part_index = 0");
+  assert.match(banner.text, /<img[^>]*banner-1-0\.jpg/, 'the Waitlist banner reaches the stored Rich HTML');
 
   // 4. Restart (new isolate, same local D1): gate state survives; no baseline repetition, no resend.
   await startWorker();
@@ -243,13 +271,34 @@ async function main() {
   assert.equal(restarted.poll, 'not_due', 'the durable gate (not memory) decides after a restart');
   assert.equal(ITAD_CALLS(restarted), 0);
   // The restarted simulation lists notices 1..n-1 again; due ticks until notice 5 (20 parts) is planned.
+  // Runs 0 and 1 also force the hourly bundle check: the restarted bundle feed first lists only the
+  // baseline bundles (nothing is new, no baseline again), then adds bundle 9101 (Waitlist + Collection game).
   for (let run = 0; run < 6; run++) {
     await makePollDue();
+    if (run < 2) await makeBundlesDue();
     const result = await scheduled();
     assert.equal(result.status, 200, result.log.slice(-2000));
+    assertSanitized(result.log);
     const [item] = summaries(result.log);
     assert.equal(item.pollGate, 'claimed');
     assert.notEqual(item.poll, 'baseline_initialized');
+    assert.equal(item.ok, true, JSON.stringify(item.errors));
+    if (run === 0) {
+      assert.deepEqual(item.bundles, { state: 'checked', listed: 2, baselineRecorded: 0, seen: 0, planned: 0, invalid: 0 });
+      assert.equal(item.calls.itadBundles, 1);
+      assert.equal(item.calls.itadWaitlistGames + item.calls.itadCollection, 0, 'nothing new: no Waitlist/Collection reads');
+      assert.equal(item.sent, 0);
+    } else if (run === 1) {
+      assert.deepEqual(item.bundles, { state: 'checked', listed: 3, baselineRecorded: 0, seen: 0, planned: 1, invalid: 0 });
+      assert.equal(item.calls.itadBundles, 1);
+      assert.equal(item.calls.itadWaitlistGames, 1);
+      assert.equal(item.calls.itadCollection, 1);
+      assert.deepEqual(item.warnings, []);
+      assert.equal(item.sent, 1, 'the bundle notice is one Rich part');
+    } else {
+      assert.equal(item.bundles.state, 'not_due', 'the next bundle check is an hour away');
+      assert.equal(item.calls.itadBundles, 0);
+    }
   }
   // 5. Overlapping ticks at a due instant: one gate owner; shared leases and durable throttle.
   await makePollDue();
@@ -263,6 +312,7 @@ async function main() {
   assert.equal(concurrent.length, 3);
   assert.equal(concurrent.filter(item => item.pollGate === 'claimed').length, 1, JSON.stringify(concurrent));
   assert.equal(concurrent.reduce((total, item) => total + item.calls.itadList, 0), 1);
+  assert.equal(concurrent.reduce((total, item) => total + item.calls.itadBundles, 0), 0, 'the hourly bundle gate is not due');
   await stopWorker();
   state = await counts();
   assert.ok(state.confirmed > before, JSON.stringify(state));
@@ -271,6 +321,18 @@ async function main() {
   assert.equal(reportedSends, state.confirmed, 'overlapping runs never sent a part twice');
   assert.equal(state.blocked, 0);
   assert.equal(state.flags, 0);
+  // Bundles survive restarts: one marker, the baseline untouched, only 9101 notified, exactly once.
+  assert.equal(state.bundleMarker, 1);
+  assert.equal(state.bundleBaseline, 2);
+  assert.equal(state.bundlesNew, 1);
+  assert.equal(state.textParts, 0);
+  const bundleParts = await query("SELECT part_index, status, format, text FROM delivery_parts WHERE notification_id = 'bundle:9101' ORDER BY part_index");
+  assert.equal(bundleParts.length, 1);
+  const [bundlePart] = bundleParts;
+  assert.deepEqual({ status: bundlePart.status, format: bundlePart.format }, { status: 'confirmed', format: 'rich_html' });
+  assert.ok(bundlePart.text.includes('Juego de bundle 9101.1</a> <mark>en tu Waitlist</mark> <mark>en tu Colección</mark>'), bundlePart.text);
+  assert.ok(bundlePart.text.includes('Juego de bundle 9101.2</a></p>'), 'the other game has no marks');
+  assert.ok(bundlePart.text.includes('url="https://example.invalid/sim/bundle-9101?ref=affiliate-sim&amp;tier=1"'), 'the store link keeps its affiliate parameters');
   const [throttle] = await query("SELECT next_allowed_at FROM chat_throttle WHERE chat_key = 'telegram'");
   assert.ok(Number.isSafeInteger(throttle.next_allowed_at));
   const [gate] = await query("SELECT owner, lease_expires_at, last_outcome FROM poll_gate WHERE gate_key = 'itad_poll'");
@@ -304,7 +366,7 @@ async function main() {
   assert.ok(state.open > 0, 'halted delivery keeps parts pending');
   assert.equal(reportedSends, state.confirmed);
 
-  console.log('Cron local: 1 suite passed; seeded gate, baseline/no history, not-due ticks without ITAD/OAuth, 20-part drain in 7 ticks, restart, overlapping ticks (one gate owner), 429 retry_after and 403 halt checks passed on local D1.');
+  console.log('Cron local: 1 suite passed; seeded gate, baseline/no history (notices and bundles), not-due ticks without ITAD/OAuth, Rich 20-part drain in 7 ticks, restart without repeating baselines, hourly bundle notice with Waitlist/Collection marks, overlapping ticks (one gate owner), 429 retry_after and 403 halt checks passed on local D1.');
 }
 
 try {

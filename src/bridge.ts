@@ -1,11 +1,16 @@
-import { InputError, type NotificationSummary, type WaitlistNotification } from './domain';
+import {
+  InputError, type Bundle, type BundleEntry, type BundleNotice, type NotificationSummary, type WaitlistGame,
+  type WaitlistNotification,
+} from './domain';
+import { formatBundle } from './bundles';
 import {
   StorageError, type D1Storage, type DetailClaim, type OAuthRefreshClaim, type PartClaim, type PollClaim,
 } from './d1-storage';
 import { ServiceError } from './itad-http';
-import { formatNotification } from './notifications';
+import { formatNotification, type BannerMap } from './notifications';
 import type { OAuthTokens } from './oauth';
 import { TelegramError, type TelegramReceipt } from './telegram';
+import { bundleKey } from './validation';
 
 /**
  * PROVISIONAL limits, not an approved production capacity (pending I6 measurement).
@@ -30,6 +35,14 @@ export interface BridgeLimits {
    * `runTick`, enforced by the durable poll gate. Delivery ticks run more often.
    */
   pollIntervalMs: number;
+  /** Spacing of the bundle checks and the shorter delay before retrying a failed or unfinished one. */
+  bundleIntervalMs: number;
+  bundleRetryMs: number;
+  /** Bundles per ITAD page (1-50) and pages read to record the first listing without notifying it. */
+  bundlePageSize: number;
+  bundleBaselinePages: number;
+  /** Bundles with Waitlist games planned per check; the rest wait for the next check. */
+  maxBundlesPerRun: number;
 }
 
 export const PROVISIONAL_LIMITS: Readonly<BridgeLimits> = Object.freeze({
@@ -43,6 +56,11 @@ export const PROVISIONAL_LIMITS: Readonly<BridgeLimits> = Object.freeze({
   detailBackoffMs: 60_000,
   refreshMarginMs: 24 * 60 * 60_000,
   pollIntervalMs: 5 * 60_000,
+  bundleIntervalMs: 60 * 60_000,
+  bundleRetryMs: 10 * 60_000,
+  bundlePageSize: 50,
+  bundleBaselinePages: 10,
+  maxBundlesPerRun: 3,
 });
 
 /** Renew the 120 s poll lease before an external ITAD/OAuth call when less than this remains. */
@@ -53,16 +71,27 @@ type BridgeStorage = Pick<D1Storage,
   | 'baselineComplete' | 'initializeBaseline' | 'discover' | 'detailWork' | 'claimDetail'
   | 'recordDetailFailure' | 'releaseDetail' | 'saveClaimedNotificationPlan' | 'nextDeliveryPart' | 'reserveSendSlot' | 'deferSends' | 'claimPart'
   | 'confirmPart' | 'releasePart' | 'deferPart' | 'blockPart' | 'queueStatus'
-  | 'claimPoll' | 'renewPoll' | 'completePoll' | 'releasePoll'>;
+  | 'claimPoll' | 'renewPoll' | 'completePoll' | 'releasePoll'
+  | 'bundleBaselineComplete' | 'initializeBundleBaseline' | 'claimBundleCheck' | 'scheduleBundleCheck'
+  | 'unknownBundleKeys' | 'recordBundlesSeen' | 'saveBundlePlan'>;
 
 export interface BridgeDependencies {
   storage: BridgeStorage;
   itad: {
     list(accessToken: string): Promise<NotificationSummary[]>;
     waitlist(id: string, accessToken: string): Promise<WaitlistNotification>;
+    /** Waitlist games (OAuth `wait_read`): banners for notices and the bundle cross-check. */
+    waitlistGames?(accessToken: string): Promise<WaitlistGame[]>;
+    /** Collection game ids (OAuth `coll_read`): optional "in your Collection" marks. */
+    collectionGameIds?(accessToken: string): Promise<string[]>;
   };
+  /** Public bundle feed (application API key). Absent: bundle notices are off. */
+  bundles?: { list(offset: number, limit: number): Promise<BundleEntry[]> };
   oauth: { refresh(previous: OAuthTokens): Promise<OAuthTokens> };
-  telegram: { send(text: string): Promise<TelegramReceipt> };
+  telegram: {
+    send(text: string): Promise<TelegramReceipt>;
+    sendRich(html: string): Promise<TelegramReceipt>;
+  };
   now: () => number;
   sleep: (ms: number) => Promise<void>;
   /** Unique per invocation; used as lease owner, never logged. */
@@ -83,6 +112,14 @@ export type DeliveryStop =
   | 'idle' | 'batch_limit' | 'waiting_retry' | 'rate_limited' | 'throttled' | 'busy'
   | 'delivery_halt' | 'flags_unavailable' | 'error';
 
+/**
+ * off: no bundle feed configured. idle: configured but not evaluated in this invocation.
+ * not_due: its own hourly gate is not due. scope_missing: the OAuth grant lacks `wait_read`.
+ */
+export type BundleState =
+  | 'off' | 'idle' | 'not_due' | 'baseline_initialized' | 'baseline_already_initialized'
+  | 'checked' | 'scope_missing' | 'failed';
+
 /** Sanitized: counts and fixed categories only. */
 export interface CycleSummary {
   ok: boolean;
@@ -91,7 +128,10 @@ export interface CycleSummary {
   /** Seconds until the durable gate is due again (from D1); null if unknown. */
   nextPollInSeconds: number | null;
   /** External calls attempted in this invocation (sanitized counters). */
-  calls: { oauthRefresh: number; itadList: number; itadDetail: number; telegramSend: number };
+  calls: {
+    oauthRefresh: number; itadList: number; itadDetail: number; telegramSend: number;
+    itadWaitlistGames: number; itadCollection: number; itadBundles: number;
+  };
   listed: number;
   baselineRecorded: number;
   pendingDetailInList: number;
@@ -99,11 +139,14 @@ export interface CycleSummary {
   detailsPlanned: number;
   detailsDeferred: number;
   detailsBlocked: number;
+  bundles: { state: BundleState; listed: number; baselineRecorded: number; seen: number; planned: number; invalid: number };
   sent: number;
   deferred: number;
   blocked: number;
   deliveryStop: DeliveryStop;
   errors: string[];
+  /** Optional enrichment that failed (banners, Collection marks): never blocks a notice. */
+  warnings: string[];
   queue: {
     pendingDetails: number; blockedDetails: number; pendingParts: number; leasedParts: number;
     blockedParts: number; confirmedParts: number; oldestOpenAgeSeconds: number | null; flags: string[];
@@ -131,6 +174,22 @@ function errorCategory(error: unknown): string {
   return 'unexpected';
 }
 
+type BundleFeed = NonNullable<BridgeDependencies['bundles']>;
+
+/** Category of a failed bundle step; the HTTP status tells a rejected application key from an outage. */
+function bundleCategory(error: unknown): string {
+  if (error instanceof PollLeaseLost) return 'poll_lease_lost';
+  if (error instanceof ServiceError && error.category === 'http' && error.status !== undefined) {
+    return `bundles_http_${error.status}`;
+  }
+  return `bundles_${errorCategory(error)}`;
+}
+
+/** Distinct game ids (lower case) across every tier of a bundle. */
+function bundleGameIds(bundle: Bundle): string[] {
+  return [...new Set(bundle.tiers.flatMap(tier => tier.games.map(game => game.id.toLowerCase())))];
+}
+
 /**
  * Standalone cycle (tests/one-shot tooling): always polls when flags allow, without
  * the durable poll gate. NOT used by the scheduled composition; see `runTick`.
@@ -154,14 +213,27 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
   const { storage, now } = deps;
   const summary: CycleSummary = {
     ok: false, poll: 'failed', pollGate: gated ? 'skipped' : 'bypassed', nextPollInSeconds: null,
-    calls: { oauthRefresh: 0, itadList: 0, itadDetail: 0, telegramSend: 0 },
+    calls: {
+      oauthRefresh: 0, itadList: 0, itadDetail: 0, telegramSend: 0,
+      itadWaitlistGames: 0, itadCollection: 0, itadBundles: 0,
+    },
     listed: 0, baselineRecorded: 0, pendingDetailInList: 0, oauthRefreshed: false,
-    detailsPlanned: 0, detailsDeferred: 0, detailsBlocked: 0, sent: 0, deferred: 0, blocked: 0,
-    deliveryStop: 'idle', errors: [], queue: null,
+    detailsPlanned: 0, detailsDeferred: 0, detailsBlocked: 0,
+    bundles: { state: deps.bundles ? 'idle' : 'off', listed: 0, baselineRecorded: 0, seen: 0, planned: 0, invalid: 0 },
+    sent: 0, deferred: 0, blocked: 0,
+    deliveryStop: 'idle', errors: [], warnings: [], queue: null,
   };
   const fail = (category: string) => {
     if (!summary.errors.includes(category)) summary.errors.push(category);
   };
+  const warn = (category: string) => {
+    if (!summary.warnings.includes(category)) summary.warnings.push(category);
+  };
+  /** OAuth scope of the access token this invocation uses (set by `refresh`). */
+  let grantedScope = '';
+  const hasScope = (scope: string) => grantedScope.split(' ').includes(scope);
+  /** Waitlist games, requested at most once per invocation (banners and bundle cross-check). */
+  let waitlistRequest: Promise<WaitlistGame[]> | undefined;
   let gate: PollClaim | null = null;
   /** Latest ITAD/OAuth 429 retry time seen by this poll; never shortened by the gate. */
   let itadRetryAt: number | null = null;
@@ -208,6 +280,7 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
       return null;
     }
     const tokens = current.tokens;
+    grantedScope = tokens.scope;
     const at = now();
     const usable = tokens.expiresAt === null || tokens.expiresAt > at;
     const expiring = tokens.expiresAt !== null && tokens.expiresAt - at <= limits.refreshMarginMs;
@@ -236,6 +309,7 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
     if (claim.sessionVersion !== current.sessionVersion) {
       // Rotated by another invocation between read and claim: use the newer stored set.
       await storage.releaseOAuthRefresh(claim, now());
+      grantedScope = claim.tokens.scope;
       return claim.tokens.accessToken;
     }
     let next: OAuthTokens;
@@ -261,6 +335,7 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
       return null;
     }
     summary.oauthRefreshed = true;
+    grantedScope = next.scope;
     let committed = false;
     try {
       committed = await storage.commitOAuthRefresh(claim, next, now());
@@ -361,6 +436,7 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
   if (accessToken !== null) {
     try {
       const ids = await storage.detailWork(now(), limits.maxDetailsPerRun);
+      const banners = ids.length > 0 ? await loadBanners(accessToken) : undefined;
       for (const id of ids) {
         // Still the poll owner before claiming/querying (no dangling detail claim if lost).
         await ensurePollLease();
@@ -371,8 +447,8 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
         try {
           summary.calls.itadDetail++;
           const detail = await deps.itad.waitlist(id, accessToken);
-          const parts = formatNotification(detail);
-          if (await storage.saveClaimedNotificationPlan(claim, detail, parts, now())) summary.detailsPlanned++;
+          const parts = formatNotification(detail, banners ? { banners } : {});
+          if (await storage.saveClaimedNotificationPlan(claim, detail, parts, now(), 'rich_html')) summary.detailsPlanned++;
           else fail('detail_lease_lost');
         } catch (error) {
           if (error instanceof StorageError) throw error;
@@ -407,6 +483,17 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
       }
     } catch (error) {
       fail(errorCategory(error));
+    }
+  }
+
+  // --- Bundles: own hourly gate and Waitlist cross-check; the first listing is never notified ---
+  if (accessToken !== null && deps.bundles !== undefined) {
+    try {
+      await checkBundles(accessToken, deps.bundles);
+    } catch (error) {
+      summary.bundles.state = 'failed';
+      noteRateLimit(error);
+      fail(bundleCategory(error));
     }
   }
 
@@ -468,7 +555,8 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
       let receipt: TelegramReceipt;
       try {
         summary.calls.telegramSend++;
-        receipt = await deps.telegram.send(head.text);
+        receipt = head.format === 'rich_html'
+          ? await deps.telegram.sendRich(head.text) : await deps.telegram.send(head.text);
       } catch (raw) {
         const error = raw instanceof TelegramError ? raw : new TelegramError('transient', 'network');
         fail(`telegram_${error.category}_${error.reason}`);
@@ -530,6 +618,156 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
       summary.sent++;
     }
     return 'batch_limit';
+  }
+
+  /** Waitlist games, requested at most once per invocation (banners and bundle cross-check). */
+  function waitlistGames(token: string): Promise<WaitlistGame[]> {
+    if (deps.itad.waitlistGames === undefined) throw new ServiceError('configuration');
+    if (waitlistRequest === undefined) {
+      summary.calls.itadWaitlistGames++;
+      waitlistRequest = deps.itad.waitlistGames(token);
+    }
+    return waitlistRequest;
+  }
+
+  /** Banners are decoration only: a failure costs the images, never the notice. */
+  async function loadBanners(token: string): Promise<BannerMap | undefined> {
+    if (deps.itad.waitlistGames === undefined || !hasScope('wait_read')) return undefined;
+    await ensurePollLease();
+    try {
+      const games = await waitlistGames(token);
+      return new Map(games.flatMap(game => game.banner === null ? [] : [[game.id, game.banner] as const]));
+    } catch (error) {
+      noteRateLimit(error);
+      warn(`banners_${errorCategory(error)}`);
+      return undefined;
+    }
+  }
+
+  /** Collection marks are best effort: without `coll_read` or on failure the notice has no marks. */
+  async function loadCollection(token: string): Promise<ReadonlySet<string>> {
+    if (deps.itad.collectionGameIds === undefined || !hasScope('coll_read')) return new Set();
+    await ensurePollLease();
+    try {
+      summary.calls.itadCollection++;
+      return new Set(await deps.itad.collectionGameIds(token));
+    } catch (error) {
+      noteRateLimit(error);
+      warn(`collection_${errorCategory(error)}`);
+      return new Set();
+    }
+  }
+
+  async function checkBundles(token: string, feed: BundleFeed): Promise<void> {
+    if (!hasScope('wait_read')) {
+      summary.bundles.state = 'scope_missing';
+      fail('bundles_scope_missing');
+      return;
+    }
+    if (!await storage.bundleBaselineComplete()) {
+      await recordBundleBaseline(feed);
+      return;
+    }
+    // The claim already moves the next check forward: a run that dies costs one retry
+    // interval instead of repeating the same check on every tick.
+    if (!await storage.claimBundleCheck(now(), limits.bundleRetryMs)) {
+      summary.bundles.state = 'not_due';
+      return;
+    }
+    let nextCheckAt = now() + limits.bundleRetryMs;
+    try {
+      if (await scanBundles(token, feed)) nextCheckAt = now() + limits.bundleIntervalMs;
+    } catch (error) {
+      summary.bundles.state = 'failed';
+      noteRateLimit(error);
+      fail(bundleCategory(error));
+    }
+    if (itadRetryAt !== null) nextCheckAt = Math.max(nextCheckAt, itadRetryAt);
+    try {
+      await storage.scheduleBundleCheck(nextCheckAt);
+    } catch (error) {
+      fail('bundles_schedule_not_persisted');
+      fail(errorCategory(error));
+    }
+  }
+
+  /** First listing: every active bundle becomes known without a message. */
+  async function recordBundleBaseline(feed: BundleFeed): Promise<void> {
+    const keys: string[] = [];
+    for (let page = 0; ; page++) {
+      if (page >= limits.bundleBaselinePages) {
+        // Never mark a partial listing as complete: the older bundles would later look new.
+        summary.bundles.state = 'failed';
+        fail('bundles_baseline_too_large');
+        return;
+      }
+      await ensurePollLease();
+      summary.calls.itadBundles++;
+      const entries = await feed.list(page * limits.bundlePageSize, limits.bundlePageSize);
+      keys.push(...entries.map(entry => bundleKey(entry.id)));
+      if (entries.length < limits.bundlePageSize) break;
+    }
+    const result = await storage.initializeBundleBaseline(keys, now(), now() + limits.bundleIntervalMs);
+    summary.bundles.state = result === 'initialized' ? 'baseline_initialized' : 'baseline_already_initialized';
+    if (result === 'initialized') {
+      summary.bundles.listed = keys.length;
+      summary.bundles.baselineRecorded = keys.length;
+    }
+  }
+
+  /** One check of the newest page. True when every unknown bundle was resolved. */
+  async function scanBundles(token: string, feed: BundleFeed): Promise<boolean> {
+    await ensurePollLease();
+    summary.calls.itadBundles++;
+    const entries = await feed.list(0, limits.bundlePageSize);
+    summary.bundles.state = 'checked';
+    summary.bundles.listed = entries.length;
+    const byKey = new Map(entries.map(entry => [bundleKey(entry.id), entry] as const));
+    const fresh = (await storage.unknownBundleKeys([...byKey.keys()])).map(key => byKey.get(key)!);
+    // A body that failed validation stays unrecorded: it is reported every check and
+    // evaluated again once it can be read, never silently dropped.
+    summary.bundles.invalid = fresh.filter(entry => entry.bundle === null).length;
+    if (summary.bundles.invalid > 0) fail('bundle_invalid');
+    // Oldest first, so notices are planned in the order ITAD published them.
+    const candidates = fresh.flatMap(entry => entry.bundle === null ? [] : [entry.bundle])
+      .sort((a, b) => Date.parse(a.publish) - Date.parse(b.publish) || a.id - b.id);
+    if (candidates.length === 0) return true;
+
+    await ensurePollLease();
+    const waitlist = new Set((await waitlistGames(token)).map(game => game.id));
+    const matches = new Map<number, string[]>();
+    const unmatched: string[] = [];
+    for (const bundle of candidates) {
+      const ids = bundleGameIds(bundle).filter(id => waitlist.has(id));
+      if (ids.length > 0) matches.set(bundle.id, ids);
+      else unmatched.push(bundleKey(bundle.id));
+    }
+    if (unmatched.length > 0) {
+      await storage.recordBundlesSeen(unmatched, now());
+      summary.bundles.seen = unmatched.length;
+    }
+
+    let collection: ReadonlySet<string> | undefined;
+    for (const bundle of candidates) {
+      const inWaitlist = matches.get(bundle.id);
+      if (inWaitlist === undefined) continue;
+      if (summary.bundles.planned >= limits.maxBundlesPerRun) return false;
+      collection ??= await loadCollection(token);
+      const owned = collection;
+      const notice: BundleNotice = {
+        bundle, waitlist: inWaitlist, collection: bundleGameIds(bundle).filter(id => owned.has(id)),
+      };
+      let parts: string[];
+      try {
+        parts = formatBundle(notice);
+      } catch (error) {
+        if (!(error instanceof InputError)) throw error;
+        fail('bundle_format_rejected');
+        continue;
+      }
+      if (await storage.saveBundlePlan(bundleKey(bundle.id), notice, parts, now())) summary.bundles.planned++;
+    }
+    return true;
   }
 
   try {

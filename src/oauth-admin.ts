@@ -2,7 +2,7 @@ import {
   D1Storage, StorageError, type D1Database,
 } from './d1-storage';
 import type { OAuthTokens } from './oauth';
-import { UUID } from './validation';
+import { isNoticeKey } from './validation';
 
 const MAX_BODY_BYTES = 16 * 1024;
 const PROBE_NONCE = /^[A-Za-z0-9_-]{43}$/;
@@ -159,7 +159,7 @@ export function createOAuthAdminHandler(
 
       if (url.pathname === '/oauth-admin/recovery-preview') {
         if (!exactKeys(input, ['notificationId', 'partIndex']) ||
-            typeof input.notificationId !== 'string' || !UUID.test(input.notificationId) ||
+            !isNoticeKey(input.notificationId) ||
             !Number.isSafeInteger(input.partIndex) || (input.partIndex as number) < 0) {
           return response(400, { ok: false, error: 'invalid_input' });
         }
@@ -173,7 +173,7 @@ export function createOAuthAdminHandler(
       if (url.pathname === '/oauth-admin/recovery') {
         if (!exactKeys(input, [
           'action', 'notificationId', 'partIndex', 'operatorConfirmed', 'duplicateRiskAcknowledged',
-        ]) || typeof input.notificationId !== 'string' || !UUID.test(input.notificationId) ||
+        ]) || !isNoticeKey(input.notificationId) ||
             !Number.isSafeInteger(input.partIndex) || (input.partIndex as number) < 0) {
           return response(400, { ok: false, error: 'invalid_input' });
         }

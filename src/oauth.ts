@@ -6,6 +6,12 @@ const AUTHORIZE = 'https://isthereanydeal.com/oauth/authorize/';
 const TOKEN = 'https://isthereanydeal.com/oauth/token/';
 const ATTEMPT_TTL_MS = 10 * 60_000;
 
+/**
+ * Requested grant: `notifications` is the core; `wait_read` (banners, bundle cross-check)
+ * and `coll_read` ("in your Collection" marks) enrich it. Only `notifications` is mandatory.
+ */
+export const OAUTH_SCOPE = 'notifications wait_read coll_read';
+
 /** Explicit standard authentication choice; ITAD's actual accepted method is an I3 gate. */
 export type ClientAuthentication =
   | { method: 'public' }
@@ -85,7 +91,7 @@ export class OAuthClient {
     return this.#grant({
       grant_type: 'authorization_code', code, code_verifier: verifier,
       redirect_uri: this.#config.redirectUri,
-    }, null, 'notifications');
+    }, null, OAUTH_SCOPE);
   }
 
   async refresh(previous: OAuthTokens): Promise<OAuthTokens> {
@@ -150,7 +156,7 @@ export class OAuthAttempt {
     const url = new URL(AUTHORIZE);
     url.search = new URLSearchParams({
       response_type: 'code', client_id: clientId, redirect_uri: redirect,
-      scope: 'notifications', state, code_challenge: challenge, code_challenge_method: 'S256',
+      scope: OAUTH_SCOPE, state, code_challenge: challenge, code_challenge_method: 'S256',
     }).toString();
     this.#url = url.toString();
   }

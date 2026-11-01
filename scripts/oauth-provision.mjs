@@ -70,7 +70,7 @@ export function parseArguments(args) {
     fail('arguments');
   }
   if (parsed['--mode'] === 'recover') {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed['--notification-id'] ?? '') ||
+    if (!/^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|bundle:[1-9][0-9]{0,14})$/i.test(parsed['--notification-id'] ?? '') ||
         !/^(0|[1-9]\d{0,5})$/.test(parsed['--part-index'] ?? '') ||
         !['delivered', 'retry'].includes(parsed['--action'])) fail('arguments');
     const index = Number(parsed['--part-index']);
@@ -548,6 +548,11 @@ async function operatorRun(args) {
       : `Sesión D1 observada: versión ${currentVersion}; el reemplazo usará CAS.`);
     tokens = await obtainOAuthTokens(config, redirect, tempRoot, clientId);
     validateProvisioningTokens(tokens);
+    // Permission names are not secret; they tell the operator which optional features will work.
+    const granted = tokens.scope.split(' ');
+    console.log(`Permisos concedidos: ${granted.join(', ')}.`);
+    if (!granted.includes('wait_read')) console.log('Aviso: sin wait_read no habrá banners ni avisos de bundles.');
+    if (!granted.includes('coll_read')) console.log('Aviso: sin coll_read no se marcarán los juegos de tu Colección.');
     importFields = {
       mode: args.mode,
       key,

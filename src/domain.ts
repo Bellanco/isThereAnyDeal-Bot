@@ -50,6 +50,56 @@ export interface WaitlistNotification {
   games: Game[];
 }
 
+export interface BundleGame {
+  id: string;
+  slug: string;
+  title: string;
+  type: 'game' | 'dlc' | 'package' | null;
+  mature: boolean;
+}
+
+export interface BundleTier {
+  price: Price | null;
+  addon: boolean;
+  games: BundleGame[];
+}
+
+/** Official bundle fields shown in the message; `url` is the affiliate link, used unchanged. */
+export interface Bundle {
+  id: number;
+  title: string;
+  shop: string;
+  url: string;
+  details: string | null;
+  /** ITAD's own remark about the bundle (for example a relaunch warning). */
+  note: string | null;
+  mature: boolean;
+  publish: string;
+  expiry: string | null;
+  tiers: BundleTier[];
+}
+
+/** A bundle with the user's games it contains: what is stored and rendered for one notice. */
+export interface BundleNotice {
+  bundle: Bundle;
+  /** Ids of the bundle games that are in the user's Waitlist. */
+  waitlist: string[];
+  /** Ids of the bundle games already in the user's Collection (best effort, may be empty). */
+  collection: string[];
+}
+
+/** A listed bundle whose id is usable but whose body failed validation (`bundle: null`). */
+export interface BundleEntry {
+  id: number;
+  bundle: Bundle | null;
+}
+
+/** Game of the user's Waitlist with its best banner image, if any. */
+export interface WaitlistGame {
+  id: string;
+  banner: string | null;
+}
+
 export class InputError extends Error {}
 
 export const MAX_TEXT = 4096;

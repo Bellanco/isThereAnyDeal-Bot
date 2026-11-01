@@ -1,5 +1,5 @@
-import type { WaitlistNotification } from './domain';
-import { UUID } from './validation';
+import type { BundleNotice, WaitlistNotification } from './domain';
+import { BUNDLE_KEY, isNoticeKey } from './validation';
 import type { OAuthTokens } from './oauth';
 
 export const LEASE_MS = 120_000;
@@ -82,12 +82,16 @@ export type PartReservation =
   | { status: 'claimed'; claim: PartClaim }
   | { status: 'busy' | 'confirmed' | 'not_found' | 'blocked' | 'waiting' };
 
+/** How a stored part is sent to Telegram: sendMessage (text) or sendRichMessage (rich_html). */
+export type PartFormat = 'text' | 'rich_html';
+
 /** Head of the global ordered queue: planned notices in plan order, parts in index order. */
 export interface DeliveryCandidate {
   notificationId: string;
   partIndex: number;
   partCount: number;
   text: string;
+  format: PartFormat;
   status: 'pending' | 'leased';
   leaseExpiresAt: number | null;
   nextAttemptAt: number;
@@ -173,9 +177,15 @@ function assertD1<T>(result: D1Result<T>): D1Result<T> {
   return result;
 }
 
+/** Notice key: an official notification UUID (lower-cased) or a `bundle:<id>` key. */
 function requireId(value: string): string {
-  if (typeof value !== 'string' || !UUID.test(value)) throw new StorageError('input');
+  if (!isNoticeKey(value)) throw new StorageError('input');
   return value.toLowerCase();
+}
+
+function requireBundleKey(value: string): string {
+  if (typeof value !== 'string' || !BUNDLE_KEY.test(value)) throw new StorageError('input');
+  return value;
 }
 
 function requireText(value: string, maximum = 512): string {
@@ -452,6 +462,152 @@ export class D1Storage {
     return rows.map(row => row.notification_id);
   }
 
+  /** False until the first bundle listing was recorded (migration 0005 `bundle_state`). */
+  async bundleBaselineComplete(): Promise<boolean> {
+    const row = await this.#db.prepare(
+      "SELECT 1 AS complete FROM bundle_state WHERE state_key = 'bundles'",
+    ).first<{ complete: number }>();
+    return row !== null;
+  }
+
+  /**
+   * One D1 batch atomically records every listed bundle as already known (never
+   * notified) together with the one-time marker, like `initializeBaseline`.
+   */
+  async initializeBundleBaseline(
+    keys: readonly string[], now: number, nextCheckAt: number,
+  ): Promise<'initialized' | 'already-initialized'> {
+    requireTime(now);
+    requireTime(nextCheckAt);
+    const normalized = [...new Set(keys.map(requireBundleKey))];
+    const runId = encodeUrl(crypto.getRandomValues(new Uint8Array(16)));
+    const statements = [
+      this.#db.prepare(
+        "INSERT OR IGNORE INTO bundle_state(state_key, baseline_run_id, next_check_at) VALUES('bundles', ?, ?)",
+      ).bind(runId, nextCheckAt),
+      this.#db.prepare(
+        `INSERT OR IGNORE INTO known_notifications(notification_id, source, first_seen_at)
+         SELECT value, 'baseline', ? FROM json_each(?)
+         WHERE EXISTS (SELECT 1 FROM bundle_state WHERE state_key = 'bundles' AND baseline_run_id = ?)`,
+      ).bind(now, JSON.stringify(normalized), runId),
+    ];
+    const result = await this.#db.batch(statements);
+    if (result.length !== statements.length) throw new StorageError('database');
+    result.forEach(assertD1);
+    const markerChanges = changes(result[0]!);
+    if (markerChanges === 1) return 'initialized';
+    if (markerChanges === 0 && await this.bundleBaselineComplete()) return 'already-initialized';
+    throw new StorageError('database');
+  }
+
+  /**
+   * CAS that claims the hourly bundle check by moving `next_check_at` forward at once:
+   * a run that dies costs one skipped interval instead of repeating the same work
+   * every minute. False if it is not due (or the baseline is not complete).
+   */
+  async claimBundleCheck(now: number, claimMs: number): Promise<boolean> {
+    requireTime(now);
+    if (!Number.isSafeInteger(claimMs) || claimMs < 1 || !Number.isSafeInteger(now + claimMs)) {
+      throw new StorageError('input');
+    }
+    const row = await this.#db.prepare(
+      `UPDATE bundle_state SET next_check_at = ?
+       WHERE state_key = 'bundles' AND next_check_at <= ? RETURNING next_check_at`,
+    ).bind(now + claimMs, now).first<{ next_check_at: number }>();
+    return row !== null;
+  }
+
+  /** Schedules the next bundle check after a finished one (success or failure). */
+  async scheduleBundleCheck(nextCheckAt: number): Promise<void> {
+    requireTime(nextCheckAt);
+    assertD1(await this.#db.prepare(
+      "UPDATE bundle_state SET next_check_at = ? WHERE state_key = 'bundles'",
+    ).bind(nextCheckAt).run());
+  }
+
+  /** Keys not recorded yet, in the order received. */
+  async unknownBundleKeys(keys: readonly string[]): Promise<string[]> {
+    const normalized = [...new Set(keys.map(requireBundleKey))];
+    if (!normalized.length) return [];
+    const rows = assertD1(await this.#db.prepare(
+      `SELECT incoming.value AS notification_id FROM json_each(?) AS incoming
+       WHERE NOT EXISTS (SELECT 1 FROM known_notifications AS known
+                         WHERE known.notification_id = incoming.value)
+       ORDER BY incoming.key`,
+    ).bind(JSON.stringify(normalized)).all<{ notification_id: string }>()).results;
+    if (!rows) throw new StorageError('database');
+    return rows.map(row => row.notification_id);
+  }
+
+  /** Bundles with no game of the Waitlist: remembered so they are never evaluated again. */
+  async recordBundlesSeen(keys: readonly string[], now: number): Promise<void> {
+    requireTime(now);
+    const normalized = [...new Set(keys.map(requireBundleKey))];
+    if (!normalized.length) return;
+    assertD1(await this.#db.prepare(
+      `INSERT OR IGNORE INTO known_notifications(notification_id, source, first_seen_at)
+       SELECT value, 'new', ? FROM json_each(?)`,
+    ).bind(now, JSON.stringify(normalized)).run());
+  }
+
+  /**
+   * Records a bundle as known and plans every part of its message in one atomic
+   * batch, queued behind the notices already planned. False (nothing written) if the
+   * bundle already has a plan or was recorded by the baseline. Callers pass only keys
+   * `unknownBundleKeys` returned.
+   */
+  async saveBundlePlan(
+    key: string, notice: BundleNotice, parts: readonly string[], now: number,
+  ): Promise<boolean> {
+    const notificationId = requireBundleKey(key);
+    requireTime(now);
+    if (!notice || typeof notice !== 'object' || !Array.isArray(parts) || parts.length === 0 ||
+        parts.some(part => typeof part !== 'string' || !part || !part.isWellFormed())) {
+      throw new StorageError('input');
+    }
+    const detailJson = JSON.stringify(notice);
+    const partsJson = JSON.stringify(parts);
+    const statements = [
+      this.#db.prepare(
+        `INSERT OR IGNORE INTO known_notifications(notification_id, source, first_seen_at)
+         VALUES(?, 'new', ?)`,
+      ).bind(notificationId, now),
+      this.#db.prepare(
+        `INSERT OR IGNORE INTO notification_work(
+           notification_id, status, detail_json, parts_json, part_count, planned_seq)
+         SELECT ?, 'planned', ?, ?, ?, (SELECT COALESCE(MAX(planned_seq), 0) + 1 FROM notification_work)
+         WHERE EXISTS (SELECT 1 FROM known_notifications WHERE notification_id = ? AND source = 'new')`,
+      ).bind(notificationId, detailJson, partsJson, parts.length, notificationId),
+      this.#db.prepare(
+        `INSERT OR IGNORE INTO delivery_parts(notification_id, part_index, text, status, format)
+         SELECT ?, CAST(item.key AS INTEGER), item.value, 'pending', 'rich_html'
+         FROM json_each(?) AS item
+         WHERE EXISTS (SELECT 1 FROM notification_work
+           WHERE notification_id = ? AND status = 'planned' AND parts_json = ?)`,
+      ).bind(notificationId, partsJson, notificationId, partsJson),
+    ];
+    const result = await this.#db.batch(statements);
+    if (result.length !== statements.length) throw new StorageError('database');
+    result.forEach(assertD1);
+    if (changes(result[1]!) !== 1) return false;
+
+    const saved = await this.#db.prepare(
+      `SELECT notification_id, status, detail_json, parts_json, part_count
+       FROM notification_work WHERE notification_id = ?`,
+    ).bind(notificationId).first<WorkRow>();
+    if (!saved || saved.status !== 'planned' || saved.detail_json !== detailJson ||
+        saved.parts_json !== partsJson || saved.part_count !== parts.length) throw new StorageError('state');
+    const storedParts = assertD1(await this.#db.prepare(
+      'SELECT part_index, text, format FROM delivery_parts WHERE notification_id = ? ORDER BY part_index',
+    ).bind(notificationId).all<{ part_index: number; text: string; format: PartFormat }>()).results;
+    if (!storedParts || storedParts.length !== parts.length ||
+        storedParts.some((part, index) =>
+          part.part_index !== index || part.text !== parts[index] || part.format !== 'rich_html')) {
+      throw new StorageError('database');
+    }
+    return true;
+  }
+
   /**
    * Persists the official detail and every formatted part in one D1 batch.
    * Only for unreserved details (tests/operator tooling); the cron uses
@@ -461,8 +617,9 @@ export class D1Storage {
     id: string,
     detail: WaitlistNotification,
     parts: readonly string[],
+    format: PartFormat = 'text',
   ): Promise<void> {
-    await this.#savePlan(id, detail, parts, null);
+    await this.#savePlan(id, detail, parts, null, format);
   }
 
   /**
@@ -474,9 +631,10 @@ export class D1Storage {
     detail: WaitlistNotification,
     parts: readonly string[],
     now: number,
+    format: PartFormat = 'text',
   ): Promise<boolean> {
     this.#validateDetailClaim(claim, now);
-    return this.#savePlan(claim.notificationId, detail, parts, { claim, now });
+    return this.#savePlan(claim.notificationId, detail, parts, { claim, now }, format);
   }
 
   async #savePlan(
@@ -484,10 +642,11 @@ export class D1Storage {
     detail: WaitlistNotification,
     parts: readonly string[],
     guard: { claim: DetailClaim; now: number } | null,
+    format: PartFormat,
   ): Promise<boolean> {
     const notificationId = requireId(id);
     if (!detail || typeof detail !== 'object' || requireId(detail.id) !== notificationId ||
-        !Array.isArray(parts) || parts.length === 0 ||
+        !Array.isArray(parts) || parts.length === 0 || (format !== 'text' && format !== 'rich_html') ||
         parts.some(part => typeof part !== 'string' || !part || !part.isWellFormed())) {
       throw new StorageError('input');
     }
@@ -510,12 +669,12 @@ export class D1Storage {
                        WHERE notification_id = ? AND source = 'new')`,
       ).bind(detailJson, partsJson, parts.length, notificationId, ...claimValues, notificationId),
       this.#db.prepare(
-        `INSERT OR IGNORE INTO delivery_parts(notification_id, part_index, text, status)
-         SELECT ?, CAST(item.key AS INTEGER), item.value, 'pending'
+        `INSERT OR IGNORE INTO delivery_parts(notification_id, part_index, text, status, format)
+         SELECT ?, CAST(item.key AS INTEGER), item.value, 'pending', ?
          FROM json_each(?) AS item
          WHERE EXISTS (SELECT 1 FROM notification_work
            WHERE notification_id = ? AND status = 'planned' AND parts_json = ?)`,
-      ).bind(notificationId, partsJson, notificationId, partsJson),
+      ).bind(notificationId, format, partsJson, notificationId, partsJson),
     ];
     const result = await this.#db.batch(statements);
     if (result.length !== statements.length) throw new StorageError('database');
@@ -531,10 +690,11 @@ export class D1Storage {
     if (saved.status !== 'planned' || saved.detail_json !== detailJson ||
         saved.parts_json !== partsJson || saved.part_count !== parts.length) throw new StorageError('state');
     const storedParts = assertD1(await this.#db.prepare(
-      'SELECT part_index, text FROM delivery_parts WHERE notification_id = ? ORDER BY part_index',
-    ).bind(notificationId).all<{ part_index: number; text: string }>()).results;
+      'SELECT part_index, text, format FROM delivery_parts WHERE notification_id = ? ORDER BY part_index',
+    ).bind(notificationId).all<{ part_index: number; text: string; format: PartFormat }>()).results;
     if (!storedParts || storedParts.length !== parts.length ||
-        storedParts.some((part, index) => part.part_index !== index || part.text !== parts[index])) {
+        storedParts.some((part, index) =>
+          part.part_index !== index || part.text !== parts[index] || part.format !== format)) {
       throw new StorageError('database');
     }
     return true;
@@ -598,7 +758,7 @@ export class D1Storage {
   /** First unconfirmed part of the oldest planned notice without blocked parts. */
   async nextDeliveryPart(): Promise<DeliveryCandidate | null> {
     const row = await this.#db.prepare(
-      `SELECT part.notification_id, part.part_index, work.part_count, part.text, part.status,
+      `SELECT part.notification_id, part.part_index, work.part_count, part.text, part.format, part.status,
               part.lease_expires_at, part.next_attempt_at, part.attempts
        FROM delivery_parts AS part
        JOIN notification_work AS work ON work.notification_id = part.notification_id
@@ -609,18 +769,19 @@ export class D1Storage {
        ORDER BY work.planned_seq, work.rowid, part.part_index
        LIMIT 1`,
     ).first<{
-      notification_id: string; part_index: number; part_count: number; text: string;
+      notification_id: string; part_index: number; part_count: number; text: string; format: PartFormat;
       status: 'pending' | 'leased'; lease_expires_at: number | null; next_attempt_at: number; attempts: number;
     }>();
     if (!row) return null;
     if (typeof row.text !== 'string' || !Number.isSafeInteger(row.part_index) ||
         !Number.isSafeInteger(row.part_count) || !Number.isSafeInteger(row.next_attempt_at) ||
-        !Number.isSafeInteger(row.attempts) || (row.status !== 'pending' && row.status !== 'leased')) {
+        !Number.isSafeInteger(row.attempts) || (row.status !== 'pending' && row.status !== 'leased') ||
+        (row.format !== 'text' && row.format !== 'rich_html')) {
       throw new StorageError('database');
     }
     return {
       notificationId: row.notification_id, partIndex: row.part_index, partCount: row.part_count,
-      text: row.text, status: row.status, leaseExpiresAt: row.lease_expires_at,
+      text: row.text, format: row.format, status: row.status, leaseExpiresAt: row.lease_expires_at,
       nextAttemptAt: row.next_attempt_at, attempts: row.attempts,
     };
   }

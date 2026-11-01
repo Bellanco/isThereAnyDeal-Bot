@@ -1,6 +1,8 @@
 import {
-  D1Storage, type D1Database, type DetailClaim, type OAuthRefreshClaim, type PartClaim, type PollClaim,
+  D1Storage, type D1Database, type DetailClaim, type OAuthRefreshClaim, type PartClaim, type PartFormat,
+  type PollClaim,
 } from '../src/d1-storage';
+import type { BundleNotice } from '../src/domain';
 import type { OAuthTokens } from '../src/oauth';
 
 interface Env {
@@ -10,6 +12,7 @@ interface Env {
 const TEST_KEY = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
 const WRONG_TEST_KEY = 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=';
 const BASELINE_FAILURE_ID = '00000000-0000-4000-8000-000000000003';
+const BUNDLE_BASELINE_FAILURE_KEY = 'bundle:3';
 let storagePromise: Promise<D1Storage> | undefined;
 
 function storage(env: Env): Promise<D1Storage> {
@@ -60,6 +63,7 @@ export default {
             input.id as string,
             input.detail as Parameters<D1Storage['saveNotificationPlan']>[1],
             input.parts as string[],
+            input.format as PartFormat | undefined,
           );
           return response({ saved: true });
         case 'detailWork':
@@ -181,6 +185,58 @@ export default {
         case 'clearPlanFailure':
           await db.prepare('DROP TRIGGER IF EXISTS fail_part_test').run();
           return response({ cleared: true });
+        case 'failBundleBaselineOnKey': {
+          if (input.key !== BUNDLE_BASELINE_FAILURE_KEY) return response({ error: 'input' }, 400);
+          await db.prepare(
+            `CREATE TRIGGER fail_bundle_baseline_test BEFORE INSERT ON known_notifications
+             WHEN NEW.notification_id = '${BUNDLE_BASELINE_FAILURE_KEY}'
+             BEGIN SELECT RAISE(ABORT, 'fixture failure'); END`,
+          ).run();
+          return response({ installed: true });
+        }
+        case 'clearBundleBaselineFailure':
+          await db.prepare('DROP TRIGGER IF EXISTS fail_bundle_baseline_test').run();
+          return response({ cleared: true });
+        case 'bundleBaselineComplete':
+          return response({ complete: await store.bundleBaselineComplete() });
+        case 'bundleBaseline':
+          return response({
+            result: await store.initializeBundleBaseline(
+              input.keys as string[], input.now as number, input.nextCheckAt as number,
+            ),
+          });
+        case 'claimBundleCheck':
+          return response({ claimed: await store.claimBundleCheck(input.now as number, input.claimMs as number) });
+        case 'scheduleBundleCheck':
+          await store.scheduleBundleCheck(input.nextCheckAt as number);
+          return response({ scheduled: true });
+        case 'bundleState': {
+          const rows = await db.prepare(
+            'SELECT state_key, next_check_at, length(baseline_run_id) AS run_id_length FROM bundle_state',
+          ).all<{ state_key: string; next_check_at: number; run_id_length: number }>();
+          if (rows.success !== true || !rows.results) return response({ error: 'test_operation_failed' }, 500);
+          return response({ rows: rows.results });
+        }
+        case 'unknownBundles':
+          return response({ keys: await store.unknownBundleKeys(input.keys as string[]) });
+        case 'recordBundlesSeen':
+          await store.recordBundlesSeen(input.keys as string[], input.now as number);
+          return response({ recorded: true });
+        case 'saveBundlePlan':
+          return response({
+            saved: await store.saveBundlePlan(
+              input.key as string, input.notice as BundleNotice, input.parts as string[], input.now as number,
+            ),
+          });
+        case 'nextDelivery':
+          return response({ candidate: await store.nextDeliveryPart() });
+        case 'partFormats': {
+          const rows = await db.prepare(
+            'SELECT part_index, format, status FROM delivery_parts WHERE notification_id = ? ORDER BY part_index',
+          ).bind(input.id as string).all<{ part_index: number; format: string; status: string }>();
+          if (rows.success !== true || !rows.results) return response({ error: 'test_operation_failed' }, 500);
+          return response({ parts: rows.results });
+        }
         default:
           return response({ error: 'unknown_action' }, 400);
       }
