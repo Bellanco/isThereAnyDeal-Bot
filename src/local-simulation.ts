@@ -57,8 +57,8 @@ function deal(shop: number, index: number) {
 /**
  * Every third simulated notice has this many games (2 deals each) so that its
  * Rich HTML is split into exactly 20 Telegram parts, the size used to measure
- * drain progress per tick (I6). 580-609 games give 20 parts; this is the middle
- * of that range, so small title/banner differences do not change the count.
+ * drain progress per tick (I6). The game count is tuned to the current Rich renderer,
+ * with and without the two simulated banners.
  * Asserted in tests; fictitious data only.
  */
 export const SIMULATED_LARGE_NOTICE_GAMES = 595;

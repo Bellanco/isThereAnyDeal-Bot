@@ -62,15 +62,15 @@ describe('money', () => {
 });
 
 describe('when', () => {
-  it('renders a Telegram time tag with a UTC fallback text', () => {
-    const html = when('2026-10-31T10:00:00+01:00');
-    expect(html).toBe(`<tg-time unix="${Date.UTC(2026, 9, 31, 9) / 1000}" format="Dt">2026-10-31 09:00 UTC</tg-time>`);
-    expectWellFormed(html);
+  it('formats a fixed Spain/Madrid date in winter and summer', () => {
+    expect(when('2026-01-15T12:34:00Z')).toBe('13:34 15-01-2026');
+    expect(when('2026-07-15T12:34:00Z')).toBe('14:34 15-07-2026');
   });
 
-  it('truncates fractions of a second and handles the epoch', () => {
-    expect(when('1970-01-01T00:00:00Z')).toBe('<tg-time unix="0" format="Dt">1970-01-01 00:00 UTC</tg-time>');
-    expect(when('2026-01-01T00:00:00.999Z')).toContain(`unix="${Date.UTC(2026, 0, 1) / 1000}"`);
+  it('uses the Madrid date across a UTC day boundary and at a daylight-saving transition', () => {
+    expect(when('2026-12-31T23:30:00Z')).toBe('00:30 01-01-2027');
+    expect(when('2026-03-29T01:30:00Z')).toBe('03:30 29-03-2026');
+    expect(when('1970-01-01T00:00:00Z')).toBe('01:00 01-01-1970');
   });
 });
 
@@ -79,15 +79,15 @@ describe('buttonRow', () => {
     expect(buttonRow([])).toBe('');
   });
 
-  it('renders URL buttons in order, highlighting only the primary one', () => {
+  it('renders typed theme-dependent URL-button styles, or the default, in order', () => {
     expect(buttonRow([
-      { label: 'Ver en ITAD', url: 'https://isthereanydeal.com/a/', primary: true },
-      { label: 'Comprar', url: 'https://shop.example/x' },
-      { label: 'Otra', url: 'https://shop.example/y', primary: false },
+      { label: 'Ver en ITAD', url: 'https://isthereanydeal.com/a/', style: 'primary' },
+      { label: 'Comprar', url: 'https://shop.example/x', style: 'success' },
+      { label: 'Otra', url: 'https://shop.example/y' },
     ])).toBe(
       '<tg-button-row>' +
       '<tg-button type="url" style="primary" url="https://isthereanydeal.com/a/">Ver en ITAD</tg-button>' +
-      '<tg-button type="url" url="https://shop.example/x">Comprar</tg-button>' +
+      '<tg-button type="url" style="success" url="https://shop.example/x">Comprar</tg-button>' +
       '<tg-button type="url" url="https://shop.example/y">Otra</tg-button>' +
       '</tg-button-row>',
     );

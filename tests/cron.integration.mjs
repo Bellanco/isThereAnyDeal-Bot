@@ -330,7 +330,7 @@ async function main() {
   assert.equal(bundleParts.length, 1);
   const [bundlePart] = bundleParts;
   assert.deepEqual({ status: bundlePart.status, format: bundlePart.format }, { status: 'confirmed', format: 'rich_html' });
-  assert.ok(bundlePart.text.includes('Juego de bundle 9101.1</a> <mark>en tu Waitlist</mark> <mark>en tu Colección</mark>'), bundlePart.text);
+  assert.ok(bundlePart.text.includes('Juego de bundle 9101.1</a></p><p>en tu lista de deseos · en tu Colección</p>'), bundlePart.text);
   assert.ok(bundlePart.text.includes('Juego de bundle 9101.2</a></p>'), 'the other game has no marks');
   assert.ok(bundlePart.text.includes('url="https://example.invalid/sim/bundle-9101?ref=affiliate-sim&amp;tier=1"'), 'the store link keeps its affiliate parameters');
   const [throttle] = await query("SELECT next_allowed_at FROM chat_throttle WHERE chat_key = 'telegram'");

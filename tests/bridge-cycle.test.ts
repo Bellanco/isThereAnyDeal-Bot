@@ -669,7 +669,7 @@ describe('I6 official DRM/platform lists', () => {
     const result = await context.run();
     expect(result).toMatchObject({ ok: true, detailsPlanned: 1 });
     const html = context.sent.map(item => item.text).join('');
-    expect(html).toContain(`<p>DRM: ${deal.drm.map(item => item.name).join(', ')} · Plataformas: ${deal.platforms.map(item => item.name).join(', ')}</p>`);
+    expect(html).not.toMatch(/DRM:|Plataformas:|DRM-100|Platform-100/);
     const plan = await context.storage.notificationPlan(id(10));
     expect(plan!.detail.games[0]!.deals[0]!.drm).toHaveLength(101);
     expect(plan!.detail.games[0]!.deals[0]!.platforms).toHaveLength(101);
@@ -1079,7 +1079,8 @@ const makeBundle = (bundleId: number, games: BundleGame[], extra: Partial<Bundle
 const asEntry = (value: Bundle): BundleEntry => ({ id: value.id, bundle: value });
 const waitlisted = (...numbers: number[]): WaitlistGame[] =>
   numbers.map(n => ({ id: bundleGameId(n), banner: null }));
-const bundleIds = (context: Context) => context.sent.map(item => Number(/Bundle ITAD (\d+)/.exec(item.text)?.[1]));
+// Identify these fixtures by their preserved title, not removed technical metadata.
+const bundleIds = (context: Context) => context.sent.map(item => Number(/<h3>Bundle (\d+)<\/h3>/.exec(item.text)?.[1]));
 
 /** First tick: the notice and bundle histories are recorded and nothing is sent. */
 async function firstTick(context: Context, history: BundleEntry[] = [{ id: 9000, bundle: null }]) {
@@ -1235,9 +1236,11 @@ describe('hourly bundle notices', () => {
     expect(context.sent.map(item => ({ text: item.text, via: item.via })))
       .toEqual(expected.map(text => ({ text, via: 'sendRich' })));
     const html = expected.join('');
-    expect(html).toContain('incluye 2 juegos de tu Waitlist');
-    expect(html.match(/<mark>en tu Waitlist<\/mark>/g)).toHaveLength(2);
-    expect(html.match(/<mark>en tu Colección<\/mark>/g)).toHaveLength(1);
+    expect(html).not.toContain('incluye 2 juegos de tu Waitlist');
+    expect(html).not.toMatch(/ITAD · Bundle|Bundle ITAD|<footer>/);
+    expect(html.match(/en tu lista de deseos/g)).toHaveLength(2);
+    expect(html.match(/en tu Colección/g)).toHaveLength(1);
+    expect(html).not.toContain('<mark>');
     expect(html).toContain('?partner=abc&amp;charity=xyz');
     expect(html).not.toContain('partner=abc&charity');
 
@@ -1425,7 +1428,7 @@ describe('hourly bundle notices', () => {
     expect(context.sent.map(item => item.text)).toEqual(expected);
     const html = expected.join('');
     for (const game of games) expect(html).toContain(`href="https://isthereanydeal.com/game/${game.slug}/"`);
-    expect(expected.map((part, index) => part.includes(` · parte ${index + 1}/${expected.length}`))).toEqual(expected.map(() => true));
+    expect(expected.map((part, index) => part.endsWith(`<footer>parte ${index + 1}/${expected.length}</footer>`))).toEqual(expected.map(() => true));
   });
 
   it('keeps a bundle that cannot fit unknown, reports it, and still plans the others', async () => {

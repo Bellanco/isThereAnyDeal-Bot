@@ -3,26 +3,55 @@
 Proyecto para recibir en Telegram las ofertas de la Waitlist de IsThereAnyDeal,
 sin utilizar el correo como intermediario.
 
-## Estado actual: Rich y bundles preparados localmente, NO desplegados
+## Estado actual: Rich desplegado; render real y activacion de bundles pendientes
+
+### Intento autorizado de actualización — 2026-11-01
+
+Checkout comprobado: `3010b5c` (`feat: update design`), worktree inicialmente
+limpio. `check:prod -- --config .\wrangler.production.local.jsonc --activate`
+pasó offline. Objetivo comprobado sin imprimir identificadores: Worker
+`itad-telegram-bot`, D1 `itad-telegram-db`, binding `DB`,
+`APP_MODE=production`, `LIVE_DELIVERY=enabled`, cron `* * * * *`.
+`workers_dev=false`, `preview_urls=false`, sin rutas configuradas: no se publicó
+el receptor HTTP mock.
+
+**Desplegado:** tras un primer fallo de lectura, la consulta remota posterior
+paso y mostro solo `0005_rich_bundles.sql` pendiente. Se aplico mediante Wrangler;
+la lista quedo vacia y se verificaron `delivery_parts.format` y `bundle_state`.
+Deploy exit 0, version `02994b02-61e2-4a3a-a96d-18bf1fc70525`,
+verificada tambien en `deployments list`; trigger `* * * * *` conservado.
+No se ha observado un tick de esta version ni comprobado su render real.
+No se cambiaron secretos, cuenta/chat, baseline, gates o colas; no se ejecutó
+OAuth, refresh manual ni ejemplos Telegram. La actividad natural preexistente
+no se detuvo. [Comandos y checklist de este intento](docs/I7-operacion.md#16-intento-autorizado-de-actualización--2026-11-01).
 
 La producción anterior está activa según la evidencia aportada por el usuario:
 baseline de **23 avisos**, tick cada minuto y sesión OAuth recuperada. No se ha
-reconsultado producción en este encargo. **El rediseño Rich y bundles NO está
-desplegado ni su render real en Telegram verificado.** Las afirmaciones de
+verificado funcionalmente ese baseline en este encargo. **El codigo Rich y bundles
+esta desplegado; scopes/API key y render real siguen sin verificar.** Las afirmaciones de
 "no ejecutado en I7" de las secciones históricas describen aquella fase, no
-anulan la evidencia posterior. No se han realizado acciones externas en este cierre.
+anulan la evidencia posterior. El ajuste visual Rich v4 descrito abajo solo está
+en el árbol local: no se ha desplegado ni se ha enviado ningún mensaje real en
+este encargo.
 
 ### Diseño preparado
 
 - Avisos oficiales OAuth cada **5 min**, drenaje cada **1 min**. Rich HTML mediante
-  `sendRichMessage`: banner opcional, título, precio anterior/mínimo histórico,
-  tiendas y ofertas completas, cupón/caducidad/DRM/plataformas/DLC/adultos cuando
-  existen, botones de ITAD y compra y pie con ID/fecha/partes. Sin emojis ni tablas.
+  `sendRichMessage`: banner opcional, título, precio actual y descuento juntos,
+  tienda, cupón/caducidad y datos secundarios cuando existen. Sin precio
+  habitual, mínimo de tienda ni precio anterior en el HTML; sí conserva el
+  mínimo histórico del juego con esa etiqueta, sin presentarlo como mínimo de
+  tres meses. Los metadatos de tipo/adultos, DRM, plataformas, publicación y
+  señales de mínimo de tienda se omiten por decisión del usuario.
+  Sin cabecera resumen ni pie técnico; solo `parte X/Y` en mensajes multipartes.
+  Sin emojis ni tablas.
 - Bundles: feed oficial `/bundles/v2`, país **ES**, `mature=true`, cada **60 min**.
   No hay reglas oficiales de notificación de bundles: es un cruce separado del
   feed con la Waitlist, no una reinterpretación de los avisos oficiales.
   Se preservan **todos los juegos y niveles**, nota, caducidad y enlaces;
-  marcas «en tu Waitlist» y «en tu Colección». Cada juego enlaza a ITAD por su slug.
+  marcas «en tu lista de deseos» y «en tu Colección». Cada juego enlaza a ITAD por su slug.
+  Sin cabecera resumen ni pie con ID/publicación: de las fechas del bundle
+  solo se muestra caducidad, también en ofertas Waitlist.
 - `ITAD_API_KEY` es un secreto **opcional**; sin key, `bundles: off`.
   Una sesión antigua con `notifications` sigue procesando avisos, sin banners.
   Reautorizar para `notifications wait_read coll_read`: `wait_read` permite
@@ -33,7 +62,61 @@ anulan la evidencia posterior. No se han realizado acciones externas en este cie
   Rich se divide sin truncar por presupuesto conservador de 30.000 bytes UTF-8,
   400 bloques y 40 imágenes (límites oficiales: 32.768, 500 y 50).
 
-### Tres ejemplos ficticios para revisar en móvil
+### Rich v4 local — tres ejemplos ficticios para revisar en móvil
+
+El formatter v4 está preparado localmente; no es una actualización desplegada.
+La jerarquía es banner/título → precio actual con descuento → tienda → cupón y
+caducidad → secundarios. Se quitan visualmente «Precio habitual», «Mínimo en
+tienda» y «Precio anterior»; permanece `game.historyLow` como «Mínimo histórico».
+El payload validado y persistido no cambia: esos campos originales no se borran
+ni se alteran. No se añade comparación de tres meses, endpoint ni sondeo; queda
+pendiente hasta que se decida una fuente de datos. No se renombra el mínimo
+histórico como mínimo trimestral.
+
+Todos los horarios visibles Rich usan `Europe/Madrid` (península y Baleares),
+`hh:mm dd-mm-aaaa`, con horario de verano automático. Aplica a caducidad de
+ofertas/bundles; la publicación se omite. No se muestra `tg-time` que Telegram
+relocalice según lector/idioma. Los ISO de contratos y el texto legado no se
+modifican. Se omiten DLC/paquete y metadatos de contenido adulto junto con DRM,
+plataformas y publicación. La señal H/N se muestra exactamente como «Mínimo
+histórico»; si `historyLow` existe, su comparativa numérica aparece una sola vez
+por juego y sustituye la etiqueta duplicada en la primera oferta. Si es `null`,
+H/N muestra solo la etiqueta. No se infiere H/N comparando precios; también se
+omite la señal S (mínimo de tienda).
+
+En bundles cada juego enlazado ocupa su propia línea y las marcas de lista de
+deseos/Colección van en la siguiente cuando existan, sin repetir el tipo de juego.
+Se preservan todos los juegos, niveles y enlaces. La nota oficial de ITAD se
+conserva sin heurísticas; solo la nota ficticia del fixture de preview es `null`.
+Entre las fechas del bundle solo aparece caducidad; sin cabecera resumen ni pie
+técnico salvo `parte X/Y`. Sin emojis, tablas ni contenido plegado.
+
+Compra usa `style="success"` e ITAD `style="primary"`, **cada botón en su propia
+fila**, compra primero. Se conserva el enlace ITAD por juego (no se añade uno
+por cada tienda), y todos los enlaces/URLs afiliadas sin normalizar.
+Los colores verde/azul son dependientes del tema, no colores CSS enviados a
+Telegram. Fuente: [Rich HTML style](https://core.telegram.org/bots/api#rich-html-style)
+y [RichMessageButton](https://core.telegram.org/bots/api#richmessagebutton).
+La lista oficial consultada no enumera `<small>`: se usan `p`, títulos, `mark`
+solo para descuentos, `hr` y filas/botones Rich documentados. No se usa
+`tg-time` porque mostraría fechas localizadas por Telegram.
+
+Preview v4 autocontenido de esta sesión:
+`C:\Users\bella\.copilot\session-state\f5de483d-d716-4c23-bbf1-65bbeb7ce95e\files\telegram-preview-v4.html`.
+Incluye estos tres ejemplos producidos por los formatters reales, vista
+mobile-first de ~390 px, sin red ni assets externos. Solo el banner es un
+placeholder local explícito; se declara «Aproximación: Telegram adapta colores
+y tipografía a tu tema». Verde/azul son aproximaciones de `success`/`primary`,
+no estilos CSS enviados a Telegram. Las fechas son texto fijo Madrid. No es
+captura ni prueba de render Telegram. Se conservan sin cambios los previews v2
+y v3. El generador visual fue temporal, no es un nuevo comando del proyecto.
+
+Medición local actual: ejemplos de una parte **537 / 1287 / 1101 bytes** y **9 / 26 / 21
+bloques**; la muestra original de **595 juegos × 2 ofertas** vuelve a dar **20 partes**,
+sin perder juegos, ofertas ni enlaces. La simulación ficticia usa esos mismos
+595 juegos con/sin banners en los índices probados.
+No se cambian presupuestos, selección ITAD ni límites operativos.
+[Mediciones y escenarios QA](docs/I5.md#medicion-local-simulacion--d1-de-pruebas-y-d1-local-de-wrangler).
 
 ```powershell
 npm run preview:telegram -- --dry-run
@@ -42,10 +125,13 @@ npm test -- tests/telegram-preview.test.mjs
 ```
 
 `--dry-run` imprime tres HTML Rich usando validadores/formatters reales compilados
-en un temporal propio: (1) banner/precio anterior/mínimo, (2) varias tiendas y
-DLC/cupón/caducidad/adultos sin banner, (3) bundle de tres niveles y ambas marcas.
+en un temporal propio: (1) banner, oferta y mínimo histórico, (2) varias tiendas,
+cupón/caducidad sin banner, (3) bundle de tres niveles y ambas marcas.
 No pide tokens, lee configuración privada, accede a cloud ni hace red.
 HTML en un navegador **no es el render exacto de Telegram**.
+Los tres ejemplos usan el diseño Rich sin cabeceras resumen ni pies técnicos,
+con la nota ficticia del bundle ausente (`note: null`). La nota real se conserva
+en los avisos. Este ajuste está validado localmente, no desplegado por este encargo.
 
 Solo el usuario, en un terminal privado y tras decidir autorizar esos tres envíos:
 
@@ -327,14 +413,18 @@ No filtra avisos leidos ni deduce ofertas del titulo resumido de la lista.
 
 `formatNotification` conserva orden, juegos y ofertas del detalle en un solo
 mensaje si cabe. Incluye titulo de juego, tienda, precio/moneda/descuento,
-enlace intacto y, cuando existen, cupon, caducidad, DRM/plataformas y precios
-de referencia; diferencia precio habitual, anterior y minimos. Tambien muestra
-fechas e indicador ITAD sin inventar reglas de seleccion. Ahora es Rich HTML, no una copia garantizada del correo ni del render móvil.
-Cada parte lleva ID del aviso y contador `parte N/M` si hay varias y respeta
+enlace intacto y, cuando existen, cupón, caducidad y señales
+H/N. En el Rich v4 no muestra `regular`, `storeLow`, `lastPrice`, DRM, plataformas,
+publicación ni señal S; sí muestra
+`historyLow` como «Mínimo histórico». La exclusión es solo visual: no cambia
+validación, payload original ni datos persistidos. Solo muestra fechas de
+caducidad, no fecha/UUID/estado leído del aviso ni cabecera resumen. No calcula el
+mínimo de tres meses. Ahora es Rich HTML, no copia garantizada del correo ni del render móvil.
+Cada parte lleva solo el contador `parte N/M` si hay varias y respeta
 el presupuesto Rich descrito arriba. Texto plano de 4096 unidades UTF-16 sigue
 en el mock y los planes históricos.
 No rompe pares Unicode ni divide/trunca/normaliza enlaces, incluidos afiliados.
-Una URL que no cabe con encabezado se rechaza antes de cualquier envio.
+Una URL que no cabe con su contenido y marcador de parte se rechaza antes de cualquier envio.
 
 `prepareNotificationBatch` valida todos los detalles antes de formatearlos y
 devuelve `{ notification, parts }` por aviso. El futuro cliente debe preparar

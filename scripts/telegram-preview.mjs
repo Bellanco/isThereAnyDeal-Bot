@@ -84,7 +84,7 @@ export function buildExamples(runtime, { noBanner = false } = {}) {
     id: 990001, title: 'Constellation Cabinet — Bundle ficticio', page: { name: 'Atlas Bundles' },
     url: 'https://example.com/preview/bundle?ref=ficticio&tier=all',
     details: 'https://example.com/preview/bundle-details',
-    note: 'Ejemplo inventado: todos los juegos y niveles se conservan.',
+    note: null,
     isMature: false, publish: '2026-11-01T09:00:00Z', expiry: '2026-11-15T19:00:00Z',
     tiers: [
       { price: price(399), addon: false, games: [bundleGame(1, 'Nebula Drifters'), bundleGame(4, 'Paper Satellites')] },

@@ -48,11 +48,21 @@ export function money(price: Price): string {
   }
 }
 
-/** Telegram renders it in the reader's time zone and language; the text is the fallback. */
+const madridDateFormatter = new Intl.DateTimeFormat('es-ES', {
+  timeZone: 'Europe/Madrid',
+  hour: '2-digit',
+  minute: '2-digit',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hourCycle: 'h23',
+});
+
+/** Fixed visible date for mainland Spain and the Balearic Islands, independent of the reader. */
 export function when(iso: string): string {
-  const ms = Date.parse(iso);
-  const fallback = `${new Date(ms).toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-  return `<tg-time unix="${Math.floor(ms / 1000)}" format="Dt">${fallback}</tg-time>`;
+  const parts = new Map(madridDateFormatter.formatToParts(new Date(Date.parse(iso)))
+    .map(part => [part.type, part.value]));
+  return `${parts.get('hour')}:${parts.get('minute')} ${parts.get('day')}-${parts.get('month')}-${parts.get('year')}`;
 }
 
 /** ITAD page of a game; the slug comes from the official payload. */
@@ -60,11 +70,14 @@ export function gameUrl(slug: string): string {
   return `https://isthereanydeal.com/game/${encodeURIComponent(slug)}/`;
 }
 
-/** Row of URL buttons. `primary` highlights the first button; URLs are never rewritten. */
-export function buttonRow(buttons: readonly { label: string; url: string; primary?: boolean }[]): string {
+/** Documented URL-button styles; Telegram chooses theme-specific colors. */
+export type ButtonStyle = 'primary' | 'success';
+
+/** Row of URL buttons. URLs are never rewritten; callers choose one button per row. */
+export function buttonRow(buttons: readonly { label: string; url: string; style?: ButtonStyle }[]): string {
   if (buttons.length === 0) return '';
   const items = buttons.map(button =>
-    `<tg-button type="url"${button.primary ? ' style="primary"' : ''} url="${attr(button.url)}">${esc(button.label)}</tg-button>`);
+    `<tg-button type="url"${button.style ? ` style="${button.style}"` : ''} url="${attr(button.url)}">${esc(button.label)}</tg-button>`);
   return `<tg-button-row>${items.join('')}</tg-button-row>`;
 }
 

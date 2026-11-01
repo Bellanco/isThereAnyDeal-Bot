@@ -1,9 +1,15 @@
 # Operación — producción anterior y actualización Rich/bundles
 
-**Rediseño Rich/bundles NO desplegado ni render real verificado.** Producción
+**Actualizacion autorizada (2026-11-01): migracion 0005 aplicada y deploy correcto.**
+Version `02994b02-61e2-4a3a-a96d-18bf1fc70525` verificada en deployments;
+cron `* * * * *` conservado. El primer fallo de lectura quedo superado.
+Ver [evidencias y checklist del intento](#16-intento-autorizado-de-actualización--2026-11-01);
+las referencias a cierres anteriores de este documento son históricas.
+
+**Codigo Rich/bundles desplegado; render real y salud funcional pendientes.** Producción
 anterior activa según evidencia aportada por el usuario: baseline de 23 avisos,
 tick cada minuto, recuperación de sesión OAuth. No se ha vuelto a consultar
-cloud en este cierre. Cloudflare Workers + D1, TypeScript, HTTP nativo y sin
+un tick de la nueva version. Cloudflare Workers + D1, TypeScript, HTTP nativo y sin
 nuevas dependencias. CPU/cuotas Free del rediseño siguen pendientes.
 
 Las secciones I7/I8/I9 de instalación inicial y su validación al final son
@@ -80,8 +86,16 @@ Token/chat de entrada oculta, validación y confirmación exacta
 `ENVIAR 3 EJEMPLOS`; no opciones/env/archivos de secretos. Formateadores,
 validadores y cliente Telegram reales compilados en temporal propio, sin D1
 ni cloud. Dry-run imprime HTML, no render exacto del cliente Telegram.
+El ajuste local posterior quita cabeceras resumen y pies técnicos en Rich;
+solo conserva `parte X/Y` en multipartes. Del bundle solo muestra caducidad;
+ofertas Waitlist también muestran solo caducidad, en Madrid `hh:mm dd-mm-aaaa`.
+Omite DRM/plataformas, publicación, precios secundarios de tienda, precio anterior
+y señal de mínimo de tienda; conserva mínimo histórico del juego, sin inferir
+un mínimo trimestral. No cambia texto legado,
+IDs/recibos ni planes ya persistidos. No se ha desplegado este ajuste.
 Ejemplos: banner/precios/mínimo; varias tiendas/DLC/cupón/caducidad/adultos;
-bundle tres niveles/nota/caducidad/Waitlist+Colección. Títulos/tiendas inventados,
+bundle tres niveles/caducidad/Waitlist+Colección. La nota ficticia se quitó del
+ejemplo; las notas reales de ITAD se conservan por posibles condiciones. Títulos/tiendas inventados,
 compras en example.com, enlaces ITAD por slugs ficticios que pueden no existir.
 Banner conocido HTTP 200 `https://placehold.co/600x280/2b3a55/ffffff/png?text=Nebula+Drifters`
 depende de tercero/Telegram; no se reconsultó. `--no-banner` lo omite.
@@ -771,3 +785,96 @@ OAuth real, deploy, operación cloud ni mensaje real en este encargo.
 moneda ES, CPU/cuotas Free, continuidad real y aviso natural con correo
 desactivado. Producción anterior activa solo según evidencia del usuario;
 rediseño local no desplegado. Este cierre no confirma estado remoto nuevo.
+
+## 16. Intento autorizado de actualización — 2026-11-01
+
+Permiso recibido: lectura de metadatos Cloudflare/D1, migración 0005 remota
+si era la única pendiente y despliegue conservando el cron activo existente.
+Esta autorización no incluyó parada, secretos, OAuth/refresh manual,
+modificaciones de baseline/gates/colas ni ejemplos Telegram.
+
+### Ejecutado realmente
+
+- `git --no-pager status --short`: sin cambios al comenzar.
+- `git --no-pager log -1 --format="%h %s"`:
+  `3010b5c feat: update design`. No se comprobó el estado de `main` remoto.
+- `node --version`: `v24.14.1`; wrapper Wrangler local: `4.153.0`.
+- Lectura de README, instrucciones del proyecto y secciones operativas
+  pertinentes; revisión de la migración aditiva 0005 y del validador offline.
+- `npm run check:prod -- --config .\wrangler.production.local.jsonc --activate`:
+  exit **0**, `production_config_valid_offline_only`.
+- Comprobación selectiva de configuración pública: Worker
+  `itad-telegram-bot`, D1 `itad-telegram-db`, binding `DB`;
+  `APP_MODE=production`, `LIVE_DELIVERY=enabled`, cron `* * * * *`,
+  `workers_dev=false`, `preview_urls=false`, sin rutas configuradas.
+  No se imprimieron config completa, IDs ni callback.
+- Ayuda local de `deployments list`, `triggers` y `tail`, sin operaciones
+  de escritura. Un primer comprobador suplementario tuvo un error de comillas
+  PowerShell/Node; se corrigió mediante stdin y pasó, sin operación cloud.
+- Única operación remota intentada:
+
+```powershell
+node .\node_modules\wrangler\bin\wrangler.js d1 migrations list DB --remote --config .\wrangler.production.local.jsonc --env-file NUL
+```
+
+Se ejecutó mediante `spawnSync` con timeout de 90 s y salida capturada en
+memoria para filtrar evidencia. `--env-file NUL` evitó cargar `.env`;
+`CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false` y
+`WRANGLER_SEND_METRICS=false` se fijaron solo para el proceso.
+Resultado: exit **1**, `remote_read_failed; raw_output_suppressed`.
+No se obtuvo lista ni causa sanitizada: no atribuir el fallo a permisos,
+autenticación, conectividad o esquema sin nueva evidencia.
+
+### Continuacion verificada del intento
+
+La consulta remota posterior sin `--env-file NUL` paso (exit 0); no se ha
+determinado la causa del primer fallo. Solo 0005 estaba pendiente:
+`d1 migrations apply DB --remote --config .\wrangler.production.local.jsonc`
+la aplico correctamente. Una nueva lista no mostro pendientes y la consulta de
+metadata confirmo columna `format TEXT` y tabla `bundle_state`.
+`deploy --autoconfig=false` termino con exit 0 y trigger `* * * * *`.
+Version `02994b02-61e2-4a3a-a96d-18bf1fc70525` comprobada en deployments.
+No se cambiaron secretos ni se hizo OAuth o envio manual de ejemplos.
+
+### Checklist hecho / pendiente (actualizado)
+
+| Control | Evidencia |
+| --- | --- |
+| Checkout y configuración activa offline | Hecho; resultados anteriores |
+| Lista de pendientes remotas, solo 0005 | Hecho, exit 0 tras el primer fallo |
+| Aplicar 0005 por mecanismo de migraciones Wrangler | Hecho |
+| Lista pendiente vacía y migraciones aplicadas | Hecho |
+| Metadata de columna `delivery_parts.format` y tabla `bundle_state` | Hecho |
+| Deploy con `--autoconfig=false`, mensaje descriptivo y cron conservado | Hecho, exit 0 |
+| Versión/deployment y triggers remotos | Version verificada; deploy confirmo cron cada minuto |
+| Tail acotado de un tick, warnings/errors/poll/bundles | NO iniciado |
+| Nombres de secretos / presencia de `ITAD_API_KEY` | NO consultados |
+| Render móvil, scopes, moneda ES, continuidad y aviso natural sin correo | Pendientes, no inferibles del check offline |
+
+Se detuvo el procedimiento al primer fallo remoto, sin reintento ni rollback.
+No se alteraron config, secretos, cuenta/chat, baseline, gates o colas.
+No se publicó HTTP, ni se hizo prueba HTTP, OAuth/refresh manual o envío de
+ejemplos. El procesamiento natural del cron preexistente no se deshabilitó;
+no se verificó su continuidad remota en este intento.
+
+**Procedimiento historico de recuperacion (ya superado):** diagnosticar en consola privada el fallo de lectura,
+sin compartir salida cruda ni credenciales. Antes de continuar, obtener una
+lista verificable: si hay pendientes inesperadas además de 0005, bloquear.
+Solo después de confirmar que 0005 es la única pendiente, aplicar mediante
+Wrangler, verificar lista vacía/esquema aditivo y desplegar la copia activa
+conservando identidad y cron. No resetear estado ni hacer rollback automático.
+
+No se crearon recursos ni se instalaron dependencias. Coste de este intento
+no cuantificado; plan/cuotas/CPU de Workers + D1 siguen sin verificar.
+Config local activa no constituye evidencia de despliegue ni de salud funcional.
+Solo se editaron `README.md` y este documento; sin commit/push.
+
+Siguiente comando para el usuario, exclusivamente si decide autorizar los tres
+ejemplos y en terminal privado interactivo; no necesita desplegar el script:
+
+```powershell
+npm run preview:telegram -- --live
+```
+
+No lo ejecutó el agente. Exige entrada oculta de token/chat y confirmación
+`ENVIAR 3 EJEMPLOS`; el render móvil sigue pendiente.

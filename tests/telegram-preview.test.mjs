@@ -51,21 +51,50 @@ describe('Telegram preview, compiled real formatters and client', () => {
     expect(examples).toHaveLength(3);
     expect(examples).toEqual(buildExamples(runtime));
     expect(examples[0]).toContain(BANNER.replaceAll('&', '&amp;'));
-    expect(examples[0]).toContain('Precio anterior:');
     expect(examples[0]).toContain('Mínimo histórico:');
+    expect(examples[0]).not.toContain('Precio anterior:');
     expect(examples[1]).not.toContain('<img');
-    for (const label of ['Faro Games', 'Cometa Store', 'DLC', 'Cupón:', 'Caduca:', 'Contenido para adultos']) {
+    for (const label of ['Faro Games', 'Cometa Store', 'Cupón:', 'Caduca:', 'Mínimo histórico']) {
       expect(examples[1]).toContain(label);
     }
-    for (const label of ['Nivel 1', 'Nivel 2', 'Nivel 3', 'Nota de ITAD:', 'Caduca:',
-      'en tu Waitlist', 'en tu Colección', 'Silent Astrolabe']) expect(examples[2]).toContain(label);
+    for (const label of ['Nivel 1', 'Nivel 2', 'Nivel 3', 'Caduca:',
+      'en tu lista de deseos', 'en tu Colección', 'Silent Astrolabe']) expect(examples[2]).toContain(label);
+    expect(examples[2]).not.toContain('Ejemplo inventado:');
+    expect(examples[2]).not.toContain('Nota de ITAD:');
     expect(examples[2]).toContain('https://isthereanydeal.com/game/preview-nebula-drifters/');
     expect(examples[2]).toContain('ref=ficticio&amp;tier=all');
     for (const html of examples) {
       expect(Buffer.byteLength(html)).toBeLessThan(32768);
       expect(html.isWellFormed()).toBe(true);
       expect(html).not.toContain(TOKEN);
+      expect(html).not.toMatch(/ITAD · (Waitlist|Bundle)|Aviso ITAD|Bundle ITAD|Leído en ITAD|<footer>/);
+      expect(html).not.toContain('018d937f-0000-7000-8000-');
+      expect(html).not.toContain('unix='); // Visible dates are fixed Madrid text, not reader-localized tags.
+      expect(html).not.toMatch(/<details|<summary|<table|<small|<tg-time|style="(?!primary"|success")/);
+      const rows = [...html.matchAll(/<tg-button-row>(.*?)<\/tg-button-row>/g)];
+      expect(rows.length).toBeGreaterThan(0);
+      for (const [, row] of rows) {
+        expect(row.match(/<tg-button /g)).toHaveLength(1);
+        if (row.includes('>Comprar')) expect(row).toContain('style="success"');
+        else expect(row).toContain('style="primary"');
+      }
     }
+    for (const html of examples.slice(0, 2)) {
+      expect(html).not.toMatch(/Precios del juego|Precios de esta tienda|Precio habitual|Mínimo en tienda|Mínimo de esta tienda|Precio anterior|DRM:|Plataformas:|Oferta publicada/);
+      expect(html).toContain('<h4>4,99\u00a0€ · <mark>-75%</mark></h4><p><b>');
+      expect(html).toContain('<p>Mínimo histórico: 4,99\u00a0€</p>');
+      expect(html).not.toMatch(/Tienda:|DLC|Paquete|Contenido para adultos|Waitlist/);
+    }
+    expect(examples[0].match(/Mínimo histórico/g)).toHaveLength(1);
+    expect(examples[1].match(/<p>Mínimo histórico<\/p>/g)).toHaveLength(1);
+    expect(examples[2]).not.toContain('<mark>');
+    expect(examples[0]).not.toContain('Caduca:');
+    expect(examples[1]).toContain('Caduca: 20:00 08-11-2026');
+    expect(examples[1]).toContain('Caduca: 20:00 09-11-2026');
+    expect(examples[2].startsWith('<h3>Constellation Cabinet — Bundle ficticio</h3>')).toBe(true);
+    expect(examples[2]).not.toContain('990001');
+    expect(examples[2]).not.toContain('publicado');
+    expect(examples[2].match(/Caduca: \d{2}:\d{2} \d{2}-\d{2}-\d{4}/g)).toHaveLength(1); // Only expiry.
     expect(buildExamples(runtime, { noBanner: true }).join('')).not.toContain('<img');
   });
 
