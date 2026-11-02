@@ -182,11 +182,26 @@ export function parseWaitlistNotification(value: unknown): WaitlistNotification 
 const MAX_BUNDLE_ID = 999_999_999_999_999;
 const BANNER_SIZES = ['banner600', 'banner400', 'banner300'] as const;
 
+/** Bundle banners are game assets, never a bundle cover or a constructed URL. */
+function bundleBanner(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const assets = value as Record<string, unknown>;
+  for (const size of [...BANNER_SIZES, 'banner145']) {
+    const banner = safeImageUrl(assets[size]);
+    if (banner !== null) return banner;
+  }
+  return null;
+}
+
 function bundleGame(value: unknown): BundleGame {
   const item = record(value);
   const id = text(item.id);
   if (!UUID.test(id) || typeof item.mature !== 'boolean') invalid();
-  return { id, slug: text(item.slug), title: text(item.title), type: gameType(item.type), mature: item.mature };
+  const banner = bundleBanner(item.assets);
+  return {
+    id, slug: text(item.slug), title: text(item.title), type: gameType(item.type), mature: item.mature,
+    ...(banner === null ? {} : { banner }),
+  };
 }
 
 function bundleTier(value: unknown): BundleTier {

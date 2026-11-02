@@ -39,12 +39,34 @@ describe('parseBundles', () => {
     }]);
   });
 
-  it('reads absent or null details, note, expiry and tier price as null', () => {
-    for (const absent of [undefined, null]) {
-      const body = bodyOf({ details: absent, note: absent, expiry: absent, tiers: [tier({ price: null })] });
-      expect(body).toMatchObject({ details: null, note: null, expiry: null });
-      expect(body?.tiers[0]?.price).toBeNull();
-    }
+  it('preserves compatibility for absent bundle metadata and nullable tier prices', () => {
+    const body = bodyOf({ details: undefined, note: null, expiry: null, tiers: [tier({ price: null })] });
+    expect(body).toMatchObject({ details: null, note: null, expiry: null });
+    expect(body?.tiers[0]?.price).toBeNull();
+    expect(bodyOf({ details: null, note: undefined, expiry: undefined }))
+      .toMatchObject({ details: null, note: null, expiry: null });
+  });
+
+  it.each(['banner600', 'banner400', 'banner300', 'banner145'])('preserves a safe per-game %s unchanged', size => {
+    const url = 'https://assets.isthereanydeal.com/example/banner.jpg?t=1&ref=2';
+    const body = bodyOf({ tiers: [tier({ games: [game({ assets: { [size]: url, boxart: 'https://example.invalid/box.jpg' } })] })] });
+    expect(body?.tiers[0]?.games[0]?.banner).toBe(url);
+  });
+
+  it('chooses largest safe per-game banner and ignores unsafe/malformed/missing assets without dropping games', () => {
+    const assets = [
+      { banner600: 'https://example.invalid/600', banner400: 'https://example.invalid/400' },
+      { banner600: 'http://unsafe.test/600', banner400: 'https://example.invalid/400' },
+      { banner600: `https://example.invalid/${String.fromCharCode(0xd800)}`, banner400: 'https://example.invalid/safe400.jpg' },
+      { banner600: `https://example.invalid/${String.fromCharCode(0xd800)}` },
+      { banner600: '"', banner400: 4, banner300: 'javascript:1', banner145: 'https://example.invalid/145' },
+      undefined, null, [], 'not assets', { boxart: 'https://example.invalid/box' },
+    ];
+    const body = bodyOf({ tiers: [tier({ games: assets.map(assets => game({ assets })) })] });
+    expect(body?.tiers[0]?.games.map(g => g.banner)).toEqual([
+      'https://example.invalid/600', 'https://example.invalid/400', 'https://example.invalid/safe400.jpg',
+      undefined, 'https://example.invalid/145', undefined, undefined, undefined, undefined, undefined,
+    ]);
   });
 
   it('accepts every documented game type, null included, and adult bundles', () => {
@@ -84,6 +106,7 @@ describe('parseBundles', () => {
     ['tiers that are not a list', { tiers: {} }],
     ['tier that is not an object', { tiers: [null] }],
     ['tier without the addon flag', { tiers: [tier({ addon: undefined })] }],
+    ['tier without its required nullable price', { tiers: [tier({ price: undefined })] }],
     ['tier games that are not a list', { tiers: [tier({ games: null })] }],
     ['negative price', { tiers: [tier({ price: { amount: -1, amountInt: -100, currency: 'EUR' } })] }],
     ['fractional amountInt', { tiers: [tier({ price: { amount: 1, amountInt: 1.5, currency: 'EUR' } })] }],

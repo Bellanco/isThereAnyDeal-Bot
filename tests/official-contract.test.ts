@@ -60,6 +60,28 @@ describe('pinned official ITAD examples (public OpenAPI 2.11.0)', () => {
     expect(bundlePayload).toEqual(examples['resp.bundles.v2.success'].value);
   });
 
+  it('does not invent EUR currency parameters or pagination for Collection', async () => {
+    const query = spec.paths['/bundles/v1'].get.parameters.map(parameter =>
+      '$ref' in parameter ? parameter.$ref.split('/').at(-1) : parameter.name);
+    expect(query).toEqual(['country', 'offset', 'limit', 'mature', 'expired', 'sort']);
+    expect(query).not.toContain('currency');
+    const route = spec.paths['/collection/games/v1'].get;
+    expect(route.security).toEqual([{ OAuth2: ['coll_read'] }]);
+    expect(route).not.toHaveProperty('parameters');
+    const official = examples['resp.games.get.v1.success-2'].value;
+    const transport = vi.fn(async (_request: Request) => new Response(JSON.stringify(official), {
+      headers: { Link: '</invented?offset=2>; rel="next"' },
+    }));
+    const ids = await new ItadClient(transport).collectionGameIds('mock-token');
+    expect(ids).toEqual(official.map(game => game.id));
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(transport.mock.calls[0]![0].url).toBe('https://api.isthereanydeal.com/collection/games/v1');
+    const bundle = officialBundle();
+    bundle.tiers[0]!.games[0]!.id = ids[1]!;
+    const html = formatBundle({ bundle, waitlist: [], collection: ids }).join('');
+    expect(html).toContain('<p><mark>En tu Colección</mark></p>');
+  });
+
   it('preserves the actual zero discount, lower history-low, nulls, dates and affiliate URL', () => {
     const valid = parseWaitlistNotification(detail);
     const game = valid.games[0]!;
@@ -75,7 +97,7 @@ describe('pinned official ITAD examples (public OpenAPI 2.11.0)', () => {
     expect(parts).toHaveLength(1);
     const html = parts[0]!;
     expect(html).toContain('<h4>13,99\u00a0€</h4>');
-    expect(html).not.toMatch(/<mark>|-0%|Gratis/);
+    expect(html).not.toMatch(/>-0%|Gratis/);
     expect(html.match(/Mínimo histórico/g)).toHaveLength(1);
     expect(html).toContain('Mínimo histórico: 6,99\u00a0€');
     expect(html).not.toMatch(/Cupón|Caduca|Hasta|Precio habitual|Mínimo en tienda|Precio anterior|Drm Free|Windows|2024|<img/);
@@ -87,16 +109,18 @@ describe('pinned official ITAD examples (public OpenAPI 2.11.0)', () => {
     const raw = bundlePayload[0]!;
     const bundle = officialBundle();
     expect(bundle.tiers).toHaveLength(raw.tiers.length);
-    expect(bundle.tiers[0]!.games).toEqual(raw.tiers[0]!.games.map(({ assets: _assets, ...game }) => game));
+    expect(bundle.tiers[0]!.games).toEqual(raw.tiers[0]!.games.map(({ assets, ...game }) =>
+      ({ ...game, banner: assets.banner600 })));
     expect(bundle.tiers[0]!.price).toEqual(raw.tiers[0]!.price);
     expect(money(bundle.tiers[0]!.price!)).toBe('87,96\u00a0US$');
     expect(bundle.note).toBe('* Bundle being relaunched...again and again.');
     expect(bundle.url).toBe(raw.url);
     expect(bundle.expiry).toBe('2024-03-22T00:59:46+01:00');
-    expect(when(bundle.expiry!)).toBe('00:59 22-03-2024');
-    const html = formatBundle({ bundle, waitlist: [], collection: [] }).join('');
+    expect(when(bundle.expiry!)).toBe('22 de marzo');
+    const waitlist = [bundle.tiers[0]!.games[0]!.id];
+    const html = formatBundle({ bundle, waitlist, collection: [] }).join('');
     expect(html).toContain('Nivel 1 · 87,96\u00a0US$');
-    expect(html).toContain('<footer>Hasta 00:59 22-03-2024</footer>');
+    expect(html).toContain('<footer>Hasta el 22 de marzo</footer>');
     expect(html).not.toContain(bundle.note!);
     expect(html).not.toMatch(/Nota de ITAD|Caduca:/);
     expect(bundle.note).toBe(raw.note);
@@ -104,7 +128,9 @@ describe('pinned official ITAD examples (public OpenAPI 2.11.0)', () => {
       expect(html).toContain(`href="https://isthereanydeal.com/game/${game.slug}/">${game.title}</a>`);
     }
     expect(buttonUrls([html])).toEqual([raw.url, raw.details]);
-    expect(html).not.toMatch(/en tu |<img|publicado|<p>dlc|counts/);
+    expect(html).not.toMatch(/en tu |publicado|<p>dlc|counts/);
+    expect(html).toContain(`<img src="${raw.tiers[0]!.games[0]!.assets.banner600}"/>`);
+    expect(html).toContain('<footer>Imagen de juego: RimWorld</footer>');
     expect(html).toContain('</tg-button></tg-button-row><tg-button-row><tg-button type="url" style="primary"');
   });
 
@@ -138,7 +164,7 @@ describe('pinned official ITAD examples (public OpenAPI 2.11.0)', () => {
       expectWellFormed(html);
       expect(utf8Length(html)).toBeLessThanOrEqual(RICH_BUDGET.bytes);
       expect(countBlocks(html)).toBeLessThanOrEqual(RICH_BUDGET.blocks);
-      expect(countImages(html)).toBe(0);
+      expect(countImages(html)).toBeLessThanOrEqual(1);
       const expectedId = sent.length + 1;
       await expect(telegram.sendRich(html)).resolves.toEqual({ messageId: expectedId });
     }
@@ -230,7 +256,40 @@ describe('explicitly synthetic mutations of the official example (not official d
     expect(html).toContain('<h4>Nivel 1</h4>');
     expect(html).not.toMatch(/precio no indicado|Gratis/);
     expect(html).not.toMatch(/Caduca|Hasta|Nota de ITAD|null/);
-    expect(html).toContain('en tu lista de deseos · en tu Colección');
+    expect(html).toContain('<mark>En tu lista de deseos</mark> · <mark>En tu Colección</mark>');
     expect(html.match(/<a href=/g)).toHaveLength(4);
+  });
+
+  it.each(['expiry', 'note'] as const)('preserves existing compatibility for absent bundle %s', field => {
+    expect(spec.components.schemas['obj.bundle'].required).toContain(field);
+    const raw = structuredClone(bundlePayload);
+    delete (raw[0]! as unknown as Record<string, unknown>)[field];
+    expect(parseBundles(raw)[0]!.bundle?.[field]).toBeNull();
+  });
+
+  it('preserves existing compatibility for absent or null bundle details', () => {
+    expect(spec.components.schemas['obj.bundle'].required).not.toContain('details');
+    expect(spec.components.schemas['obj.bundle'].properties.details.type).toBe('string');
+    const raw = structuredClone(bundlePayload);
+    delete (raw[0]! as unknown as Record<string, unknown>).details;
+    expect(parseBundles(raw)[0]!.bundle?.details).toBeNull();
+    (raw[0]! as unknown as Record<string, unknown>).details = null;
+    expect(parseBundles(raw)[0]!.bundle?.details).toBeNull();
+  });
+
+  it('distinguishes per-game bundle assets from a bundle-owned image and preserves the safe banner projection', () => {
+    expect(spec.components.schemas['obj.bundle'].properties).not.toHaveProperty('assets');
+    expect(spec.components.schemas['obj.game'].required).toContain('assets');
+    expect(Object.keys(spec.components.schemas['obj.asset-map'].properties))
+      .toEqual(['banner145', 'banner300', 'banner400', 'banner600', 'boxart']);
+    const raw = bundlePayload[0]!;
+    expect(raw.tiers[0]!.games[0]!.assets.banner600).toMatch(/^https:\/\//);
+    const bundle = officialBundle();
+    expect(bundle.tiers[0]!.games[0]).not.toHaveProperty('assets');
+    expect(bundle.tiers[0]!.games[0]!.banner).toBe(bundlePayload[0]!.tiers[0]!.games[0]!.assets.banner600);
+    expect(countImages(formatBundle({ bundle, waitlist: [], collection: [] }).join(''))).toBe(0);
+    expect(countImages(formatBundle({
+      bundle, waitlist: [bundle.tiers[0]!.games[0]!.id], collection: [],
+    }).join(''))).toBe(1);
   });
 });

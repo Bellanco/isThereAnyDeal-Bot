@@ -56,6 +56,8 @@ export interface BundleGame {
   title: string;
   type: 'game' | 'dlc' | 'package' | null;
   mature: boolean;
+  /** Best safe official per-game banner. Optional for plans persisted before assets support. */
+  banner?: string | null;
 }
 
 export interface BundleTier {

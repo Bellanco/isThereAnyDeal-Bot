@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { InputError, type Bundle, type BundleGame, type BundleNotice, type BundleTier } from '../src/domain';
 import { formatBundle } from '../src/bundles';
-import { countBlocks, countImages, MAX_RICH_BYTES, RICH_BUDGET, utf8Length } from '../src/rich';
+import { countBlocks, countImages, MAX_RICH_BYTES, RICH_BUDGET, stripImages, utf8Length } from '../src/rich';
 import { buttonUrls, expectWellFormed } from './rich-helpers';
 
 const NBSP = '\u00a0';
@@ -43,7 +43,7 @@ function checkParts(parts: string[]) {
     expect(utf8Length(part)).toBeLessThanOrEqual(RICH_BUDGET.bytes);
     expect(utf8Length(part)).toBeLessThan(MAX_RICH_BYTES);
     expect(countBlocks(part)).toBeLessThanOrEqual(RICH_BUDGET.blocks);
-    expect(countImages(part)).toBe(0);
+    expect(countImages(part)).toBeLessThanOrEqual(1);
     expect(part).not.toContain('ITAD · Bundle');
     expect(part).not.toContain('de tu Waitlist');
     expect(part).not.toContain('Bundle ITAD');
@@ -58,18 +58,18 @@ describe('bundle message', () => {
   it('lists the bundle, its tiers and games, the marks and the buttons in the approved layout', () => {
     const html = only(formatBundle(notice(bundle({ note: 'Relanzado' }), [gid(1)], [gid(1), gid(2)])));
     expect(html).toBe(
-      '<h3>Bundle de prueba</h3><p><b>Humble Bundle</b></p>' +
-      '<footer>Hasta 20:00 14-11-2026</footer>' +
-      '<tg-button-row><tg-button type="url" style="success" url="https://example.invalid/bundle?ref=x&amp;a=1">Comprar bundle en Humble Bundle</tg-button></tg-button-row>' +
+      '<h3>Bundle de prueba</h3>' +
+      '<footer>Hasta el 14 de noviembre</footer>' +
+      '<tg-button-row><tg-button type="url" style="success" url="https://example.invalid/bundle?ref=x&amp;a=1">Comprar en Humble Bundle</tg-button></tg-button-row>' +
       `<tg-button-row><tg-button type="url" style="primary" url="${ITAD_PAGE}">Ver en ITAD</tg-button></tg-button-row>` +
       `<hr/><h4>Nivel 1 · ${PRICE}</h4>` +
-      `<p><a href="${link(1)}">Game 1</a></p><p>en tu lista de deseos · en tu Colección</p>` +
-      `<p><a href="${link(2)}">Game 2</a></p><p>en tu Colección</p>`,
+      `<p><a href="${link(1)}">Game 1</a></p><p><mark>En tu lista de deseos</mark> · <mark>En tu Colección</mark></p>` +
+      `<p><a href="${link(2)}">Game 2</a></p><p><mark>En tu Colección</mark></p>`,
     );
     checkParts([html]);
   });
 
-  it('never adds a banner, and returns the same parts for the same input without touching it', () => {
+  it('adds no image without assets, and returns the same parts without touching the input', () => {
     const input = notice(bundle(), [gid(1)], [gid(2)]);
     const before = structuredClone(input);
     const first = formatBundle(input);
@@ -78,12 +78,76 @@ describe('bundle message', () => {
     expect(first.join('')).not.toContain('<img');
   });
 
+  describe('official per-game bundle banner', () => {
+    const banner = (n: number) => `https://example.invalid/game-${n}.jpg?x=1&ref=unchanged`;
+
+    it('prioritizes the first Waitlist game with a safe banner in tier/game order, not Waitlist order', () => {
+      const input = notice(bundle({ tiers: [
+        tier([game(1, { banner: banner(1) }), game(2)]),
+        tier([], { price: null }),
+        tier([game(3, { banner: banner(3), title: 'A & <B>' }), game(4, { banner: banner(4) })]),
+      ] }), [gid(4), gid(2), gid(3).toUpperCase()], [gid(1)]);
+      const before = structuredClone(input);
+      const parts = formatBundle(input);
+      expect(parts[0]).toContain(`<img src="${banner(3).replaceAll('&', '&amp;')}"/>`);
+      expect(parts[0]).toContain('<footer>Imagen de juego: A &amp; &lt;B&gt;</footer>');
+      expect(countImages(parts.join(''))).toBe(1);
+      const noAssets = structuredClone(input);
+      noAssets.bundle.tiers.forEach(t => t.games.forEach(g => { delete g.banner; }));
+      expect(parts.map(stripImages)).toEqual(formatBundle(noAssets));
+      expect(buttonUrls(parts)).toEqual([STORE_URL, ITAD_PAGE]);
+      expect(input).toEqual(before);
+      checkParts(parts);
+    });
+
+    it.each([
+      ['Waitlist games lack usable banners', [gid(1), gid(99)]],
+      ['no Waitlist game is present', []],
+    ])('renders no image when %s, even if other games have banners', (_case, waitlist) => {
+      const input = notice(bundle({ tiers: [
+        tier([]), tier([game(1, { banner: 'http://unsafe.test/a.jpg' }), game(2, { banner: banner(2) })]),
+        tier([game(3, { banner: banner(3) })]),
+      ] }), waitlist);
+      const html = only(formatBundle(input));
+      expect(html).not.toMatch(/<img|Imagen de juego/);
+      const noAssets = structuredClone(input);
+      noAssets.bundle.tiers.forEach(t => t.games.forEach(g => { delete g.banner; }));
+      expect(html).toBe(only(formatBundle(noAssets)));
+    });
+
+    it.each([undefined, null, '', 'http://example.invalid/a', 'javascript:alert(1)',
+      'https://example.invalid/a"b', 'https://example.invalid/a b', '/banner.jpg',
+      `https://example.invalid/${String.fromCharCode(0xd800)}`,
+      `https://example.invalid/${'x'.repeat(2048)}`])('does not render unsafe/missing persisted banner %s', banner => {
+      const input = notice(bundle({ tiers: [tier([game(1, banner === undefined ? {} : { banner })])] }), [gid(1)]);
+      expect(formatBundle(input).join('')).not.toMatch(/<img|Imagen de juego/);
+    });
+
+    it('preserves all game links, repetitions and multipart order inside every limit', () => {
+      const games = Array.from({ length: 900 }, (_, index) => game(index + 1));
+      const input = notice(bundle({ tiers: [
+        tier(games.slice(0, 450)), tier([game(1), ...games.slice(450)], { price: null, addon: true }),
+      ] }), [gid(700)]);
+      const before = formatBundle(input);
+      input.bundle.tiers[1]!.games[250]!.banner = banner(700);
+      const parts = formatBundle(input);
+      checkParts(parts);
+      expect(parts).toHaveLength(before.length);
+      expect(countImages(parts.join(''))).toBe(1);
+      expect(parts.slice(1).join('')).not.toMatch(/<img|Imagen de juego/);
+      expect(buttonUrls(parts)).toEqual(buttonUrls(before));
+      const links = (all: string[]) => [...all.join('').matchAll(/<p><a href="[^"]+">[^<]*<\/a><\/p>/g)].map(m => m[0]);
+      expect(links(parts)).toEqual(links(before));
+      expect(links(parts)).toHaveLength(901);
+    });
+  });
+
   describe('Waitlist and Collection marks without a summary line', () => {
     const marked = (waitlist: string[], tiers: BundleTier[] = bundle().tiers) => {
       const parts = formatBundle(notice(bundle({ tiers }), waitlist));
       checkParts(parts);
       expect(parts[0]!.startsWith('<h3>Bundle de prueba</h3>')).toBe(true);
-      return parts.join('').match(/<p>en tu lista de deseos<\/p>/g)?.length ?? 0;
+      return parts.join('').match(/<p><mark>En tu lista de deseos<\/mark><\/p>/g)?.length ?? 0;
     };
 
     it('says nothing about the Waitlist when no game matches', () => {
@@ -103,8 +167,8 @@ describe('bundle message', () => {
       const html = only(formatBundle(notice(bundle(), [], [gid(1), gid(2)])));
       expect(html.startsWith('<h3>Bundle de prueba</h3>')).toBe(true);
       checkParts([html]);
-      expect(html).toContain('<p>en tu Colección</p>');
-      expect(html).not.toContain('<mark>');
+      expect(html).toContain('<p><mark>En tu Colección</mark></p>');
+      expect(html).not.toContain('<code>');
       expect(html).not.toContain('en tu lista de deseos');
     });
 
@@ -113,8 +177,8 @@ describe('bundle message', () => {
         bundle({ tiers: [tier([game(1, { id: gid(1).toUpperCase() }), game(2)])] }),
         [gid(1)], [gid(2).toUpperCase()],
       )));
-      expect(html).toContain(`<p><a href="${link(1)}">Game 1</a></p><p>en tu lista de deseos</p>`);
-      expect(html).toContain(`<p><a href="${link(2)}">Game 2</a></p><p>en tu Colección</p>`);
+      expect(html).toContain(`<p><a href="${link(1)}">Game 1</a></p><p><mark>En tu lista de deseos</mark></p>`);
+      expect(html).toContain(`<p><a href="${link(2)}">Game 2</a></p><p><mark>En tu Colección</mark></p>`);
     });
   });
 
@@ -124,10 +188,11 @@ describe('bundle message', () => {
         title: 'A & B <c>', shop: 'Tom & Co', note: 'x < y & z',
         tiers: [tier([game(1, { title: 'Tom & <Jerry>' })])],
       }))));
-      expect(html).toContain('<h3>A &amp; B &lt;c&gt;</h3><p><b>Tom &amp; Co</b></p>');
+      expect(html).toContain('<h3>A &amp; B &lt;c&gt;</h3>');
+      expect(html).not.toContain('<p><b>Tom &amp; Co</b></p>');
       expect(html).not.toMatch(/Nota de ITAD|x &lt; y &amp; z/);
       expect(html).toContain('>Tom &amp; &lt;Jerry&gt;</a>');
-      expect(html).toContain('>Comprar bundle en Tom &amp; Co</tg-button>');
+      expect(html).toContain('>Comprar en Tom &amp; Co</tg-button>');
       checkParts([html]);
     });
 
@@ -143,7 +208,7 @@ describe('bundle message', () => {
       const html = only(formatBundle(notice(bundle({ details: null }))));
       expect(html).not.toContain('Ver en ITAD');
       expect(html).not.toContain('style="primary"');
-      expect(html).toContain('<tg-button type="url" style="success" url="https://example.invalid/bundle?ref=x&amp;a=1">Comprar bundle en Humble Bundle</tg-button>');
+      expect(html).toContain('<tg-button type="url" style="success" url="https://example.invalid/bundle?ref=x&amp;a=1">Comprar en Humble Bundle</tg-button>');
       expect(buttonUrls([html])).toEqual([STORE_URL]);
     });
 
@@ -157,7 +222,7 @@ describe('bundle message', () => {
       expect(input.bundle.note).toBe(note);
       expect(formatBundle(input)).toEqual(formatBundle(notice(bundle({ note: null, mature: true }))));
       expect(html).not.toMatch(/Nota de ITAD|Tienda:|adultos|DLC|Paquete/);
-      expect(html).toContain('<footer>Hasta 20:00 14-11-2026</footer>');
+      expect(html).toContain('<footer>Hasta el 14 de noviembre</footer>');
     });
 
     it('omits null expiry without an empty label', () => {
@@ -169,7 +234,7 @@ describe('bundle message', () => {
 
     it('formats only expiry in fixed Madrid time, never bundle publication', () => {
       const html = only(formatBundle(notice(bundle({ publish: '2026-12-31T23:30:00-02:00', expiry: '2027-01-01T00:00:00.999Z' }))));
-      expect(html).toContain('<footer>Hasta 01:00 01-01-2027</footer>');
+      expect(html).toContain('<footer>Hasta el 1 de enero</footer>');
       expect(html).not.toContain('<tg-time');
       const noExpiry = only(formatBundle(notice(bundle({ expiry: null }))));
       expect(noExpiry).not.toMatch(/Caduca|Hasta/);
@@ -237,7 +302,7 @@ describe('bundle message', () => {
       const before = structuredClone(input);
       const html = only(formatBundle(input));
       expect(input).toEqual(before);
-      expect(html).toContain(`<p><a href="${link(1)}">Game 1</a></p><p>en tu lista de deseos</p>`);
+      expect(html).toContain(`<p><a href="${link(1)}">Game 1</a></p><p><mark>En tu lista de deseos</mark></p>`);
       expect(html).not.toMatch(/Tienda:|DLC|Paquete|adultos|Waitlist/);
       expect(html).not.toMatch(/ · (?:DLC|Paquete|adultos)/);
     });
@@ -261,7 +326,7 @@ describe('bundle message', () => {
       expect(parts.slice(1).join('')).not.toContain('<h3>');
       expect(buttonUrls(parts)).toEqual([STORE_URL, ITAD_PAGE]);
       const content = parts.map(part => part.replace(/<footer>parte \d+\/\d+<\/footer>$/, '')).join('');
-      expect(content.match(/<footer>Hasta 20:00 14-11-2026<\/footer>/g)).toHaveLength(1);
+      expect(content.match(/<footer>Hasta el 14 de noviembre<\/footer>/g)).toHaveLength(1);
       expect(content).not.toContain('<footer>parte ');
       expect(parts[0]).toContain(`<h4>Nivel 1 · ${PRICE}</h4>`);
       for (const part of parts.slice(1)) {
@@ -270,9 +335,9 @@ describe('bundle message', () => {
       // Nothing is dropped or repeated.
       const titles = [...parts.join('').matchAll(/>Game (\d+)<\/a>/g)].map(match => Number(match[1]));
       expect(titles).toEqual(Array.from({ length: 900 }, (_, index) => index + 1));
-      expect(parts.join('').match(/<p>en tu lista de deseos<\/p>/g)).toHaveLength(2);
-      expect(parts.join('')).toContain(`<p><a href="${link(5)}">Game 5</a></p><p>en tu lista de deseos</p>`);
-      expect(parts.join('')).toContain(`<p><a href="${link(700)}">Game 700</a></p><p>en tu lista de deseos</p>`);
+      expect(parts.join('').match(/<p><mark>En tu lista de deseos<\/mark><\/p>/g)).toHaveLength(2);
+      expect(parts.join('')).toContain(`<p><a href="${link(5)}">Game 5</a></p><p><mark>En tu lista de deseos</mark></p>`);
+      expect(parts.join('')).toContain(`<p><a href="${link(700)}">Game 700</a></p><p><mark>En tu lista de deseos</mark></p>`);
     });
 
     it('keeps every tier heading with its first game when several tiers are split', () => {

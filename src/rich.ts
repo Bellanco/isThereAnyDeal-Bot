@@ -19,7 +19,8 @@ export function utf8Length(value: string): number {
 
 /** Plain https image URL that is safe inside an HTML attribute; anything else is not shown. */
 export function safeImageUrl(value: unknown): string | null {
-  return typeof value === 'string' && value.length <= 2048 && /^https:\/\/[^\s"<>]+$/.test(value) ? value : null;
+  return typeof value === 'string' && value.isWellFormed() &&
+    value.length <= 2048 && /^https:\/\/[^\s"<>]+$/.test(value) ? value : null;
 }
 
 /** Text content: only & < > are significant. */
@@ -50,24 +51,18 @@ export function money(price: Price): string {
 
 const madridDateFormatter = new Intl.DateTimeFormat('es-ES', {
   timeZone: 'Europe/Madrid',
-  hour: '2-digit',
-  minute: '2-digit',
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  hourCycle: 'h23',
+  day: 'numeric',
+  month: 'long',
 });
 
 /** Fixed visible date for mainland Spain and the Balearic Islands, independent of the reader. */
 export function when(iso: string): string {
-  const parts = new Map(madridDateFormatter.formatToParts(new Date(Date.parse(iso)))
-    .map(part => [part.type, part.value]));
-  return `${parts.get('hour')}:${parts.get('minute')} ${parts.get('day')}-${parts.get('month')}-${parts.get('year')}`;
+  return madridDateFormatter.format(new Date(Date.parse(iso)));
 }
 
 /** Native Rich footer, not CSS font sizing. Telegram determines its rendering. */
 export function expiryFooter(iso: string | null): string {
-  return iso === null ? '' : `<footer>Hasta ${when(iso)}</footer>`;
+  return iso === null ? '' : `<footer>Hasta el ${when(iso)}</footer>`;
 }
 
 /** ITAD page of a game; the slug comes from the official payload. */
@@ -99,7 +94,7 @@ export function countImages(html: string): number {
 
 /** Banner-less fallback for a message Telegram refused because of an image. */
 export function stripImages(html: string): string {
-  return html.replace(/<img\b[^>]*\/>/g, '');
+  return html.replace(/<img\b[^>]*\/>(?:<footer>Imagen de juego: [^<]*<\/footer>)?/g, '');
 }
 
 /**

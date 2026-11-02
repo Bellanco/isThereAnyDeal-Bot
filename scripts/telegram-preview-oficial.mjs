@@ -31,7 +31,7 @@ export async function loadOfficialSpec() {
   return spec;
 }
 
-/** Cards contain the real v4 formatter output verbatim; all commentary is outside. */
+/** Offline cards use the real banner-less fallback; all commentary is outside. */
 export function buildOfficialPreview(runtime, spec) {
   const examples = spec.components.examples;
   const detail = runtime.parseWaitlistNotification(examples['resp.notifications.waitlist.get.v1'].value);
@@ -41,7 +41,7 @@ export function buildOfficialPreview(runtime, spec) {
   // No account, no membership inference, no synthetic selection, no banner injection.
   const groups = [
     runtime.formatNotification(detail),
-    runtime.formatBundle({ bundle, waitlist: [], collection: [] }),
+    runtime.formatBundle({ bundle, waitlist: [], collection: [] }).map(runtime.stripImages),
   ];
   const cards = parts => parts.map(part => `<article class="rich-card">${part}</article>`).join('\n');
   const payload = (label, value) => `<details><summary>${label}</summary><pre>${esc(JSON.stringify(value, null, 2))}</pre></details>`;
@@ -89,7 +89,7 @@ ${cards(groups[1])}
 <li>87.96 USD → 87,96 US$; no se convierte a EUR aunque el cliente tenga country=ES. Caducidad oficial ${esc(bundle.expiry)} → 00:59 22-03-2024, Europe/Madrid. El formatter omite los segundos; el original permanece íntegro debajo.</li>
 <li>La nota de relanzamiento se conserva literalmente en el payload oficial debajo, pero ninguna nota ITAD se dibuja en la tarjeta. La publicación es ${esc(bundle.publish)}; los assets del ejemplo tienen parámetros t de fechas posteriores a su caducidad. No se actualiza ni se “repara” esa muestra histórica.</li>
 <li>No hay consulta de Waitlist/Colección, ni membresía real o simulada: waitlist=[] y collection=[] son entradas locales para representar el contrato sin marcas. No prueba elegibilidad: el flujo real solo notifica bundles seleccionados por cruce.</li>
-<li>Se mantienen los cuatro juegos, el nivel y todos los enlaces de compra/ITAD. Caducidad en bloque footer nativo: Hasta con fecha sin negrita. V4 no dibuja notas ni banners de bundles aunque el payload los aporte. counts y assets quedan en el original, no son campos visuales del modelo.</li>
+<li>Se mantienen los cuatro juegos, el nivel y todos los enlaces de compra/ITAD. Caducidad en bloque footer nativo: Hasta con fecha sin negrita. La maqueta oficial usa stripImages (fallback real sin banner) para no cargar assets externos. El formatter local selecciona un banner per-game; no una portada propia de bundle. counts y assets íntegros quedan en el original.</li>
 </ul>
 </div>
 ${payload('Payload oficial íntegro del feed (sin editar)', examples['resp.bundles.v1.success'].value)}

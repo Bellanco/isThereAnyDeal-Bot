@@ -7,6 +7,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 export const BANNER = 'https://placehold.co/600x280/2b3a55/ffffff/png?text=Nebula+Drifters';
+export const SECOND_BANNER = 'https://placehold.co/600x280/2b3a55/ffffff/png?text=Clockwork+Reef';
+// Fictional fixture only: no asset download, and no invented bundle cover.
+export const BUNDLE_GAME_BANNER = 'https://example.invalid/preview/nebula-banner600.jpg';
 export const CONFIRMATION = 'ENVIAR 3 EJEMPLOS';
 
 export class PreviewError extends Error {
@@ -40,7 +43,7 @@ export async function compilePreviewRuntime(tempRoot) {
   if (!ok) throw new PreviewError('runtime_unavailable');
   await writeFile(path.join(outDir, 'package.json'), '{"type":"commonjs"}', { mode: 0o600 });
   const require = createRequire(path.join(outDir, 'package.json'));
-  return Object.assign({}, ...['notifications', 'bundles', 'validation', 'telegram'].map(name =>
+  return Object.assign({}, ...['notifications', 'bundles', 'validation', 'telegram', 'rich'].map(name =>
     require(path.join(outDir, `${name}.js`))));
 }
 
@@ -71,14 +74,10 @@ export function buildExamples(runtime, { noBanner = false } = {}) {
       deal(3, 'Cometa Store', { price: price(699), cut: 65, flag: null,
         voucher: 'REEF-FICTICIO', expiry: '2026-11-08T19:00:00Z' }),
     ] }),
-    game(3, 'Velvet Moon Afterdark', { type: 'dlc', mature: true, historyLow: null,
-      lastPrice: null, deals: [deal(4, 'Luna Digital', {
-        voucher: 'LUNA-FICTICIO', expiry: '2026-11-09T19:00:00Z',
-      })] }),
   ]);
   const bundleGame = (n, title) => {
     const { historyLow, lastPrice, deals, ...entry } = game(n, title);
-    return entry;
+    return { ...entry, ...(n === 1 && !noBanner ? { assets: { banner600: BUNDLE_GAME_BANNER } } : {}) };
   };
   const entry = runtime.parseBundles([{
     id: 990001, title: 'Constellation Cabinet — Bundle ficticio', page: { name: 'Atlas Bundles' },
@@ -95,7 +94,7 @@ export function buildExamples(runtime, { noBanner = false } = {}) {
   if (!entry?.bundle) throw new PreviewError('example_invalid');
   const groups = [
     runtime.formatNotification(first, noBanner ? {} : { banners: new Map([[id(1), BANNER]]) }),
-    runtime.formatNotification(second),
+    runtime.formatNotification(second, noBanner ? {} : { banners: new Map([[id(2), SECOND_BANNER]]) }),
     runtime.formatBundle({ bundle: entry.bundle, waitlist: [id(1), id(2)], collection: [id(1), id(4)] }),
   ];
   if (groups.some(parts => parts.length !== 1)) throw new PreviewError('example_parts');

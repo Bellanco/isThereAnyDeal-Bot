@@ -36,6 +36,45 @@ describe('I7 offline production configuration', () => {
   it('rejects unreplaced public placeholders before cloud commands', () => {
     expect(() => checkProduction(template)).toThrow('production_config_rejected:placeholders');
   });
+  it('accepts the exact panel observability block in both stages', () => {
+    const config = prepared();
+    expect(config.observability).toEqual({
+      logs: { enabled: true, invocation_logs: true },
+      traces: { enabled: false },
+    });
+    expect(checkProduction(config)).toBe('production_config_valid_offline_only');
+    config.vars.LIVE_DELIVERY = 'enabled';
+    config.triggers.crons = ['* * * * *'];
+    expect(checkProduction(config, true)).toBe('production_config_valid_offline_only');
+  });
+  it('still accepts existing configurations without observability', () => {
+    const config = prepared();
+    delete config.observability;
+    expect(checkProduction(config)).toBe('production_config_valid_offline_only');
+    config.vars.LIVE_DELIVERY = 'enabled';
+    config.triggers.crons = ['* * * * *'];
+    expect(checkProduction(config, true)).toBe('production_config_valid_offline_only');
+  });
+  it.each([
+    null, undefined, true, 'enabled', [], {},
+    { logs: null, traces: { enabled: false } },
+    { logs: [], traces: { enabled: false } },
+    { logs: { enabled: true }, traces: { enabled: false } },
+    { logs: { enabled: true, invocation_logs: true } },
+    { logs: { enabled: true, invocation_logs: true }, traces: null },
+    { logs: { enabled: true, invocation_logs: true }, traces: [] },
+    { logs: { enabled: true, invocation_logs: true }, traces: {} },
+    { logs: { enabled: 'true', invocation_logs: true }, traces: { enabled: false } },
+    { logs: { enabled: true, invocation_logs: 1 }, traces: { enabled: false } },
+    { logs: { enabled: true, invocation_logs: true }, traces: { enabled: 'false' } },
+    { logs: { enabled: true, invocation_logs: true }, traces: { enabled: false }, enabled: true },
+    { logs: { enabled: true, invocation_logs: true, head_sampling_rate: 1 }, traces: { enabled: false } },
+    { logs: { enabled: true, invocation_logs: true }, traces: { enabled: false, destinations: [] } },
+  ])('rejects unsupported observability shape, keys or types (case %#)', observability => {
+    const config = prepared();
+    config.observability = observability;
+    expect(() => checkProduction(config)).toThrow('production_config_rejected:observability');
+  });
   it('accepts replaced configuration only in the explicitly requested stage', () => {
     const config = prepared();
     expect(checkProduction(config)).toBe('production_config_valid_offline_only');

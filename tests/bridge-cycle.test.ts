@@ -423,7 +423,7 @@ describe('I6 flags fail closed', () => {
     const value = notice(id(10), MANY_GAMES, 1);
     context.addNotice(value, 1);
     const expected = formatNotification(value);
-    expect(expected.length).toBeGreaterThan(2);
+    expect(expected.length).toBeGreaterThan(1);
     expect(await context.run()).toMatchObject({ sent: 1, deliveryStop: 'batch_limit' });
     await context.storage.setFlag('delivery_halt', 'telegram_forbidden', context.clock.t);
     context.clock.t += 5 * 60_000;
@@ -1109,6 +1109,22 @@ function knownSource(context: Context, key: string): string | null {
 describe('Rich notices and Waitlist banners', () => {
   const banners = new Map([[notice(id(10)).games[0]!.id, BANNER]]);
 
+  it('does not enrich ordinary Waitlist notices with Collection membership even with coll_read', async () => {
+    const context = await setup({ tokens: grant(FULL_SCOPE) });
+    context.listed.push(summary(id(1), -100));
+    await context.tick();
+    const value = notice(id(10));
+    context.addNotice(value, 1);
+    context.collection.push(value.games[0]!.id);
+    advance(context, 5 * MIN);
+    const result = await context.tick();
+    expect(result).toMatchObject({ ok: true, detailsPlanned: 1, sent: 1 });
+    expect(result.calls.itadCollection).toBe(0);
+    expect(context.itad.collectionGameIds).not.toHaveBeenCalled();
+    expect(context.sent.map(item => item.text)).toEqual(formatNotification(value));
+    expect(context.sent[0]!.text).not.toContain('En tu Colección');
+  });
+
   it('asks for the Waitlist once and gives every notice its banners', async () => {
     const context = await setup({ tokens: grant('notifications wait_read') });
     context.listed.push(summary(id(1), -100));
@@ -1241,12 +1257,13 @@ describe('hourly bundle notices', () => {
     const html = expected.join('');
     expect(html).not.toContain(found.note!);
     expect(html).not.toMatch(/Nota de ITAD|Caduca:/);
-    expect(html).toContain('<footer>Hasta 00:59 22-03-2024</footer>');
+    expect(html).toContain('<footer>Hasta el 22 de marzo</footer>');
     expect(html).not.toContain('incluye 2 juegos de tu Waitlist');
     expect(html).not.toMatch(/ITAD · Bundle|Bundle ITAD|<footer>parte \d+\/\d+<\/footer>/);
-    expect(html.match(/en tu lista de deseos/g)).toHaveLength(2);
-    expect(html.match(/en tu Colección/g)).toHaveLength(1);
-    expect(html).not.toContain('<mark>');
+    expect(html.match(/En tu lista de deseos/g)).toHaveLength(2);
+    expect(html.match(/En tu Colección/g)).toHaveLength(1);
+    expect(html).toContain('<mark>En tu lista de deseos</mark>');
+    expect(html).toContain('<mark>En tu Colección</mark>');
     expect(html).toContain('?partner=abc&amp;charity=xyz');
     expect(html).not.toContain('partner=abc&charity');
 
@@ -1319,21 +1336,87 @@ describe('hourly bundle notices', () => {
     expect(result.calls.itadCollection).toBe(0);
     expect(context.itad.collectionGameIds).not.toHaveBeenCalled();
     expect(context.sent.map(item => item.text)).toEqual(formatBundle({ bundle: found, waitlist: [bundleGameId(1)], collection: [] }));
-    expect(context.sent[0]!.text).not.toContain('en tu Colección');
+    expect(context.sent[0]!.text).not.toContain('En tu Colección');
   });
 
-  it('still notifies the bundle, without Collection marks, when the Collection request fails', async () => {
+  it.each([
+    ['http', 401], ['http', 403], ['http', 503], ['shape', 200], ['json', 200],
+    ['network', undefined], ['timeout', undefined], ['rate_limit', 429],
+  ] as const)('persists the unmarked fallback on Collection %s/%s; recovery never rewrites it', async (category, status) => {
     const context = await full();
     await firstTick(context);
     const found = makeBundle(9101, [makeGame(1)]);
     context.bundleEntries.unshift(asEntry(found));
     context.waitlistGames.push(...waitlisted(1));
-    context.collectionFailures.push(new ServiceError('http', 503));
+    context.collectionFailures.push(new ServiceError(category, status));
     advance(context, 60 * MIN);
     const result = await context.tick();
-    expect(result).toMatchObject({ ok: true, sent: 1, warnings: ['collection_http'], errors: [] });
+    expect(result).toMatchObject({ ok: true, sent: 1, warnings: [`collection_${category}`], errors: [] });
     expect(result.calls.itadCollection).toBe(1);
     expect(context.sent.map(item => item.text)).toEqual(formatBundle({ bundle: found, waitlist: [bundleGameId(1)], collection: [] }));
+    const row = context.db.raw.prepare('SELECT detail_json, parts_json FROM notification_work WHERE notification_id = ?')
+      .get(bundleKey(9101)) as { detail_json: string; parts_json: string };
+    expect(JSON.parse(row.detail_json).collection).toEqual([]);
+    expect(JSON.parse(row.parts_json)).toEqual(context.sent.map(item => item.text));
+    context.collection.push(bundleGameId(1));
+    advance(context, 120 * MIN);
+    const recovered = await context.tick();
+    expect(recovered.sent).toBe(0);
+    expect(context.itad.collectionGameIds).toHaveBeenCalledTimes(1);
+    expect(context.db.raw.prepare('SELECT detail_json, parts_json FROM notification_work WHERE notification_id = ?')
+      .get(bundleKey(9101))).toEqual(row);
+  });
+
+  it('caches a failed Collection read for this check and delivers saved unmarked pending plans after recovery', async () => {
+    const context = await full();
+    await firstTick(context);
+    const first = makeBundle(9101, [makeGame(1)]);
+    const second = makeBundle(9102, [makeGame(1)]);
+    context.bundleEntries.unshift(asEntry(first), asEntry(second));
+    context.waitlistGames.push(...waitlisted(1));
+    context.collectionFailures.push(new ServiceError('network'));
+    advance(context, 60 * MIN);
+    const planned = await context.tick({ maxSendsPerRun: 0 });
+    expect(planned).toMatchObject({ ok: true, sent: 0, warnings: ['collection_network'] });
+    expect(planned.bundles.planned).toBe(2);
+    expect(planned.calls.itadCollection).toBe(1);
+    const rows = context.db.raw.prepare(
+      'SELECT detail_json, parts_json FROM notification_work WHERE notification_id LIKE ? ORDER BY notification_id',
+    ).all('bundle:91%') as { detail_json: string; parts_json: string }[];
+    expect(rows).toHaveLength(2);
+    expect(rows.every(row => JSON.parse(row.detail_json).collection.length === 0)).toBe(true);
+    context.collection.push(bundleGameId(1));
+    advance(context, 120 * MIN);
+    const delivered = await context.tick();
+    expect(delivered).toMatchObject({ ok: true, sent: 2 });
+    expect(delivered.calls.itadCollection).toBe(0);
+    expect(context.itad.collectionGameIds).toHaveBeenCalledTimes(1);
+    expect(context.sent.map(item => item.text)).toEqual(rows.flatMap(row => JSON.parse(row.parts_json)));
+    expect(context.sent.every(item => !item.text.includes('En tu Colección'))).toBe(true);
+    expect(context.db.raw.prepare(
+      'SELECT detail_json, parts_json FROM notification_work WHERE notification_id LIKE ? ORDER BY notification_id',
+    ).all('bundle:91%')).toEqual(rows);
+  });
+
+  it('normalizes ids at the enrichment boundary, retaining unowned games and exact persisted marks', async () => {
+    const context = await full();
+    await firstTick(context);
+    const found = makeBundle(9101, [makeGame(1), makeGame(2), makeGame(3)]);
+    context.bundleEntries.unshift(asEntry(found));
+    context.waitlistGames.push({ id: bundleGameId(1).toUpperCase(), banner: null });
+    context.collection.push(bundleGameId(1).toUpperCase(), bundleGameId(2).toUpperCase());
+    advance(context, 60 * MIN);
+    expect(await context.tick()).toMatchObject({ ok: true, sent: 1, warnings: [] });
+    const row = context.db.raw.prepare('SELECT detail_json, parts_json FROM notification_work WHERE notification_id = ?')
+      .get(bundleKey(9101)) as { detail_json: string; parts_json: string };
+    expect(JSON.parse(row.detail_json)).toEqual({
+      bundle: found, waitlist: [bundleGameId(1)], collection: [bundleGameId(1), bundleGameId(2)],
+    });
+    const html = context.sent.map(item => item.text).join('');
+    expect(html).toContain('<mark>En tu lista de deseos</mark> · <mark>En tu Colección</mark>');
+    expect(html).toContain('<p><mark>En tu Colección</mark></p>');
+    expect(html).toContain('Bundle Game 3');
+    expect(JSON.parse(row.parts_json)).toEqual(context.sent.map(item => item.text));
   });
 
   it('reports a token without wait_read on every poll and keeps delivering notices', async () => {

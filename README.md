@@ -8,9 +8,105 @@ fixtures contrastados con OpenAPI 2.11.0, sin cuenta ni envíos reales.
 Aclara la errata documental del feed: `/bundles/v1`, no `/bundles/v2`;
 el cliente ya usa la ruta correcta. No altera el historial de despliegue.
 
-## Estado actual: reglas finales Rich desplegadas y versión activa verificada
+## Estado actual: corrección Unicode y Workers Logs publicados
 
-### Deploy autorizado de reglas finales — 2026-11-01
+**Publicación autorizada de observability — 2026-11-02: completada.**
+Tras «Sube el código», se revisaron estado/diff y configuración activa local:
+29 tests de `tests/production-config.test.mjs`, `check:prod --activate` y ambos
+diff-check aprobados. El dry-run con temporal exclusivo falló (exit 1):
+Node rechazó el archivo inexistente pasado con `--env-file` para evitar leer
+`.env`. Temporal eliminado y hash de configuración intacto. Se resolvió el
+fallo local repitiendo el dry-run sin ese argumento: exit 0, temporal eliminado.
+Deploy exit 0, cron conservado. `deployments status` confirma la versión
+`aff935c5-b085-49e2-975d-8691e328490f` al 100 %, deployment
+`2026-11-02T22:54:08.025238Z`, mensaje
+`Enable Workers Logs and invocation logging`.
+[Evidencia del intento](docs/I7-operacion.md#21-intento-autorizado-de-publicar-observability--2026-11-02).
+
+**Configuración de observability publicada (2026-11-02):** la copia
+local de producción y su plantilla incorporan el bloque mostrado en el panel:
+`observability: { logs: { enabled: true, invocation_logs: true }, traces: { enabled: false } }`.
+`check:prod` valida estrictamente sus claves y booleanos; omitir el bloque sigue
+siendo válido. Desplegado sin modificar cron, vars ni bindings.
+El estado de ingesta de logs en el panel no se comprobó en esta operación.
+
+El usuario reautorizó OAuth con `notifications wait_read coll_read` y desplegó
+el checkout local el 2026-11-02 en la versión anterior
+`613fede8-8bc1-4967-bed8-ffcbb3dc9fbd`. Lecturas posteriores a ese despliegue
+confirmaron sesión D1 versión 4,
+configuración activa, migraciones al día y un ciclo real sin errores.
+No hay partes pendientes/bloqueadas ni flags de parada; ambos baselines siguen
+completos según aquella lectura, no repetida tras el nuevo deploy.
+Aún falta observar la lectura real de Colección y el próximo mensaje.
+No se descargó el código remoto para compararlo byte a byte con el checkout.
+La revisión completa posterior corrigió localmente el rechazo de banners con
+Unicode mal formado y dos expectativas de tests antiguas: 713 tests aprobados,
+typecheck correcto.
+
+Con autorización explícita «Súbela», se publicó el checkout con esa corrección:
+**`cfcd14fb-0843-4481-8217-d8484b138e63`, activa al 100 %**,
+versión creada **2026-11-02T22:38:34.406885Z**; deployment registrado
+**2026-11-02T22:38:35.842788Z**. Mensaje:
+`Fix malformed Unicode rejection in safeImageUrl banners`.
+`check:prod --activate`, typecheck y dry-run: exit 0; temporal exclusivo
+eliminado. La suite completa anterior no se repitió, sin cambios inesperados.
+Deploy exit 0; status/list coinciden y metadata de bindings/runtime permanece
+idéntica a la versión anterior. Conserva `LIVE_DELIVERY=enabled`, cron
+`* * * * *` confirmado por salida de triggers, DB/callback/key version y secretos.
+Sin OAuth, migraciones, manipulación de cola, tick forzado ni mensajes de prueba.
+No se observó render, entrega o Colección reales en esta operación.
+[Evidencias de cierre y límites](docs/I7-operacion.md#20-reautorizacion-del-usuario-y-revision-de-cierre--2026-11-02).
+
+[Auditoría de opcionales, Colección y assets de bundles](docs/ejemplos-oficiales-preview.md#auditoria-de-opcionales-y-coleccion--2026-11-02-no-desplegada):
+el render omite decoraciones vacías sin inventar datos; H/N sigue siendo una
+señal oficial aunque `historyLow:null`. Se conserva la compatibilidad existente
+para metadatos ausentes de bundles, sin endurecer el parser por un cambio visual.
+Colección actualmente se marca solo en bundles, no en avisos Waitlist normales.
+Banner per-game de bundle autorizado e implementado localmente en el seguimiento
+abajo; sin diagnóstico confirmado de producción.
+
+**Banner de bundles — cambios incluidos en el checkout desplegado por el usuario (2026-11-02):**
+primer juego con banner seguro que pertenece a Waitlist, en orden de
+tiers/juegos; si ningún juego de Waitlist tiene banner seguro → sin imagen
+(sin recurrir a otros juegos del bundle).
+Assets oficiales per-game `banner600 → banner400 → banner300 → banner145`,
+sin construir URLs ni inventar portada del bundle. Etiqueta «Imagen de juego»
+con título explícito. No se filtra ni cambia ningún juego/nivel/enlace.
+El mejor banner opcional se guarda en el modelo/snapshot JSON; planes antiguos
+sin assets siguen válidos y no se reescriben. Fallback 400 existente elimina
+imagen y su etiqueta, manteniendo el contenido.
+[Evidencias, maqueta v4 y diagnóstico de Colección limitado a logs](docs/ejemplos-oficiales-preview.md#banner-per-game-autorizado--2026-11-02-local-no-desplegado).
+
+Seguimiento de esta petición (2026-11-02): ejemplo ficticio 2 con **un juego y
+dos tiendas**, banner opcional como ejemplo 1; no se filtran juegos reales.
+Mínimo histórico en texto simple (datos numeric/null y deduplicación H/N
+intactos). Bundles: tienda solo en «Comprar en …» y ambas marcas con `<mark>`.
+Normalización defensiva de IDs al cruzar Colección/Waitlist en el bridge.
+Los 15 archivos dirty iniciales se preservaron, sin revertir ni hacer commit.
+El usuario desplegó estos cambios junto con la reactivación tras OAuth.
+La versión anterior **`9eedc6a6-7599-4350-aaa9-3250e58e1cdb`** es histórica;
+las evidencias locales que siguen conservan su contexto anterior al despliegue.
+[Diagnóstico Colección, límite EUR y QA local](docs/ejemplos-oficiales-preview.md#seguimiento-local-no-desplegado--2026-11-02).
+
+### Deploy autorizado de ajustes de presentación — 2026-11-02
+
+Cambios Rich locales desplegados en el Worker existente `itad-telegram-bot`
+con `wrangler.production.local.jsonc`. La versión **`9eedc6a6-7599-4350-aaa9-3250e58e1cdb`,
+al 100%**, creada **2026-11-02 12:35:26.659386 UTC**, con mensaje
+`Deploy approved Rich display tweaks`. `deployments status` y el último registro
+de `deployments list` coinciden en la versión activa.
+
+Incluye quitar la línea de tienda duplicada bajo el precio, fecha de caducidad
+«Hasta el 20 de octubre», mínimo histórico con `<mark>` y marcas de bundles
+distintas (`<mark>` para Waitlist, `<code>` para Colección). Check de producción
+offline, typecheck, suite completa en serie y dry-run: exit 0. Deploy: exit 0;
+metadata informa trigger `deployment`. No se modificaron configuración,
+secretos, migraciones, D1 ni recursos; sin OAuth, mensajes manuales ni pruebas
+reales ITAD/Telegram. La metadata `deployment` no confirma un tick cron ni
+prueba el render o la entrega real. Costes cloud no medidos.
+[Comandos y comprobaciones](docs/I7-operacion.md#19-despliegue-autorizado-de-ajustes-rich--2026-11-02).
+
+### Antecedente: deploy autorizado de reglas finales — 2026-11-01
 
 Árbol local completo desplegado en el Worker existente `itad-telegram-bot` con
 `wrangler.production.local.jsonc`. Versión **`a5249f58-4e5a-4c78-9df8-1aa26b73c7a6`,
@@ -93,22 +189,36 @@ ejecutado en I7” describen fases históricas.
   Rich se divide sin truncar por presupuesto conservador de 30.000 bytes UTF-8,
   400 bloques y 40 imágenes (límites oficiales: 32.768, 500 y 50).
 
-### Rich v4 desplegado — tres ejemplos ficticios para revisar en móvil
+### Historial: ajustes visuales Rich desplegados — 2026-11-02
+
+El formatter quita la línea de tienda debajo del precio de cada oferta; el
+nombre sigue en el botón «Comprar en …». La caducidad de ofertas y bundles se
+muestra como «Hasta el 20 de octubre», sin hora ni año, usando la fecha local
+`Europe/Madrid`. El mínimo histórico se resalta con `<mark>`, distinto del cupón
+`<code>`; en bundles, «En tu lista de deseos» usa `<mark>` y «En tu Colección»
+`<code>`.
+
+Son cambios solo de presentación: no alteran datos recibidos, precios, selección,
+agrupación, enlaces ni persistencia. El despliegue está verificado; el render
+real en Telegram y la entrega de una oferta siguen pendientes de comprobación.
+
+### Diseño Rich — tres ejemplos ficticios para revisar en móvil
 
 El formatter v4 está incluido en la versión activa verificada del deploy autorizado.
-La jerarquía es banner/título → precio actual con descuento → tienda → cupón y
-caducidad → secundarios. Se quitan visualmente «Precio habitual», «Mínimo en
+La jerarquía es banner/título → precio actual con descuento → cupón/caducidad y
+secundarios → botones. El nombre de tienda se conserva en el botón de compra.
+Se quitan visualmente «Precio habitual», «Mínimo en
 tienda» y «Precio anterior»; permanece `game.historyLow` como «Mínimo histórico».
 El payload validado y persistido no cambia: esos campos originales no se borran
 ni se alteran. No se añade comparación de tres meses, endpoint ni sondeo; queda
 pendiente hasta que se decida una fuente de datos. No se renombra el mínimo
 histórico como mínimo trimestral.
 
-Todos los horarios visibles Rich usan `Europe/Madrid` (península y Baleares),
-`hh:mm dd-mm-aaaa`, con horario de verano automático. Aplica a caducidad de
-ofertas/bundles; la publicación se omite. No se muestra `tg-time` que Telegram
-relocalice según lector/idioma. Los ISO de contratos y el texto legado no se
-modifican. Se omiten DLC/paquete y metadatos de contenido adulto junto con DRM,
+Las fechas de caducidad Rich muestran día y mes en texto, calculados en
+`Europe/Madrid` (península y Baleares); se omiten hora y año. La publicación se
+omite. No se muestra `tg-time` que Telegram relocalice según lector/idioma. Los
+ISO de contratos y el texto legado no se modifican. Se omiten DLC/paquete y
+metadatos de contenido adulto junto con DRM,
 plataformas y publicación. La señal H/N se muestra exactamente como «Mínimo
 histórico»; si `historyLow` existe, su comparativa numérica aparece una sola vez
 por juego y sustituye la etiqueta duplicada en la primera oferta. Si es `null`,
@@ -117,6 +227,8 @@ omite la señal S (mínimo de tienda).
 
 En bundles cada juego enlazado ocupa su propia línea y las marcas de lista de
 deseos/Colección van en la siguiente cuando existan, sin repetir el tipo de juego.
+En el formatter local actual, Waitlist y Colección usan `<mark>`; el texto
+distingue las dos marcas. El mínimo histórico vuelve a texto simple.
 Se preservan todos los juegos, niveles y enlaces. La decisión anterior de mostrar
 notas oficiales queda reemplazada explícitamente por el ajuste local aprobado:
 **ninguna nota ITAD se dibuja en Rich bundles**, sin filtrar por su texto.
@@ -135,7 +247,7 @@ La lista oficial consultada no enumera `<small>`: se usan `p`, títulos, `mark`
 solo para descuentos, `hr` y filas/botones Rich documentados. No se usa
 `tg-time` porque mostraría fechas localizadas por Telegram.
 
-### Ajustes aprobados del formatter — desplegados (2026-11-01)
+### Historial: ajustes Rich incluidos en el deploy del 2026-11-01
 
 - `cut=0`: precio exacto, sin porcentaje, `mark` ni ` · ` sobrante;
   `cut>0` conserva el formato anterior. Un precio cero sigue siendo numérico,
@@ -188,10 +300,14 @@ no estilos CSS enviados a Telegram. Las fechas son texto fijo Madrid. No es
 captura ni prueba de render Telegram. Se conservan sin cambios los previews v2
 y v3. El generador visual fue temporal, no es un nuevo comando del proyecto.
 
-Medición local actual: ejemplos de una parte **537 / 1303 / 1109 bytes** y **9 / 26 / 21
-bloques**; la muestra original de **595 juegos × 2 ofertas** vuelve a dar **20 partes**,
-sin perder juegos, ofertas ni enlaces. La simulación ficticia usa esos mismos
-595 juegos con/sin banners en los índices probados.
+Medición local del formatter actual: ejemplos de una parte **508 / 796 / 1129
+bytes** y **8 / 14 / 20 bloques**, con imágenes **1 / 1 / 0**, usando
+`utf8Length` y `countBlocks` reales (incluyen footer).
+Sin banners: **428 / 717 / 1129 bytes**, **7 / 13 / 20 bloques**.
+Las cifras previas **21 / 20 bloques** omitían footers: para aquellos HTML
+eran **23 / 21**, no métricas del nuevo contenido. La muestra original de **595 juegos × 2 ofertas**
+da **17 partes** (antes 20), sin perder juegos, ofertas ni enlaces. La simulación
+ficticia usa esos mismos 595 juegos con/sin banners en los índices probados.
 No se cambian presupuestos, selección ITAD ni límites operativos.
 [Mediciones y escenarios QA](docs/I5.md#medicion-local-simulacion--d1-de-pruebas-y-d1-local-de-wrangler).
 
@@ -202,14 +318,15 @@ npm test -- tests/telegram-preview.test.mjs
 ```
 
 `--dry-run` imprime tres HTML Rich usando validadores/formatters reales compilados
-en un temporal propio: (1) banner, oferta y mínimo histórico, (2) varias tiendas,
-cupón/caducidad sin banner, (3) bundle de tres niveles y ambas marcas.
+en un temporal propio: (1) banner, oferta y mínimo histórico simple,
+(2) **un juego**, dos tiendas, cupón/caducidad y banner opcional,
+(3) bundle de tres niveles y ambas marcas con `<mark>`.
 No pide tokens, lee configuración privada, accede a cloud ni hace red.
 HTML en un navegador **no es el render exacto de Telegram**.
 Los tres ejemplos usan el diseño Rich sin cabeceras resumen ni pies técnicos,
 con la nota ficticia del bundle ausente (`note: null`). Todas las notas ITAD se
 omiten visualmente; la nota real permanece en los datos internos.
-Este ajuste está validado localmente y desplegado; el preview sigue siendo
+El último ajuste está validado localmente, **NO desplegado**; el preview sigue siendo
 offline, no una prueba de Telegram real.
 
 Solo el usuario, en un terminal privado y tras decidir autorizar esos tres envíos:
@@ -318,8 +435,10 @@ I6 (drenaje separado, solo simulacion y D1 local): `scheduled` usa `runTick`;
 el cron LOCAL es cada minuto, la consulta OAuth/ITAD solo ocurre cuando la
 compuerta durable `poll_gate` (migracion 0004, propietario/version/caducidad
 120 s con CAS) esta vencida (cada 5 min, respetando 429) y la entrega corre en
-cada tick. Un aviso de 20 partes se entrega en 7 ticks (~6 min) en vez de 7
-ciclos de 5 min. Ver [I5](docs/I5.md#i6-tick-cada-minuto-y-compuerta-durable-de-consultas-itad).
+cada tick. Históricamente, el formato anterior drenaba 20 partes en 7 ticks;
+con los ajustes Rich desplegados el 2026-11-02, la muestra de 595 juegos
+produce 17 partes y se drena en 6 ticks. Ver
+[I5](docs/I5.md#i6-tick-cada-minuto-y-compuerta-durable-de-consultas-itad).
 La configuracion principal sigue siendo mock, sin cron.
 I5: ciclo `scheduled` cada cinco minutos que integra refresh OAuth con el sobre
 D1, consulta, baseline, detalle persistido, cliente Telegram `sendMessage` con
@@ -376,7 +495,7 @@ defecto; detener con Ctrl+C. Si el puerto esta ocupado:
 real en carpeta temporal y simulacion en memoria de ITAD/OAuth/Telegram; dispara
 `/__scheduled?cron=*+*+*+*+*` en loopback (cron local cada minuto; fuerza la
 compuerta solo en la D1 temporal) y muestra el progreso por tick de un aviso de
-20 partes. `npm run dev:cron` y `npm run db:local:migrate`
+17 partes con el formatter local. `npm run dev:cron` y `npm run db:local:migrate`
 permiten repetirlo a mano (ver [I5](docs/I5.md)).
 
 `npm run test:d1` aplica [migrations/0001_i4_storage.sql](migrations/0001_i4_storage.sql),
@@ -491,10 +610,10 @@ Las propiedades desconocidas se ignoran; destino y credenciales no se extraen.
 No filtra avisos leidos ni deduce ofertas del titulo resumido de la lista.
 
 `formatNotification` conserva orden, juegos y ofertas del detalle en un solo
-mensaje si cabe. Incluye titulo de juego, tienda, precio/moneda/descuento,
-enlace intacto y, cuando existen, cupón, caducidad y señales
-H/N. En el Rich v4 no muestra `regular`, `storeLow`, `lastPrice`, DRM, plataformas,
-publicación ni señal S; sí muestra
+mensaje si cabe. Incluye título de juego, precio/moneda/descuento, enlace intacto
+y, cuando existen, cupón, caducidad y señales H/N. El nombre de tienda aparece
+en el botón de compra, no como línea duplicada. En el Rich actual no muestra
+`regular`, `storeLow`, `lastPrice`, DRM, plataformas, publicación ni señal S; sí muestra
 `historyLow` como «Mínimo histórico». La exclusión es solo visual: no cambia
 validación, payload original ni datos persistidos. Solo muestra fechas de
 caducidad, no fecha/UUID/estado leído del aviso ni cabecera resumen. No calcula el

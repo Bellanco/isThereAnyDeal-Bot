@@ -1,6 +1,6 @@
 # Revisión pública de contratos y preview oficial — 2026-11-01
 
-**Estado local actual:** [caducidad secundaria en footer Rich nativo](#caducidad-secundaria--footer-rich-nativo).
+**Estado local actual NO desplegado:** [banner per-game autorizado](#banner-per-game-autorizado--2026-11-02-local-no-desplegado).
 Las mediciones y negritas de seguimientos anteriores son históricas.
 
 ## Alcance y resultado
@@ -65,8 +65,9 @@ fijado en las pruebas y el generador.
   `page.name` pasa a `shop`, `isMature` a `mature`; `counts`, `page.id/shopId` y
   assets no son campos visuales. Los originales completos quedan visibles
   fuera de las tarjetas. `details` es opcional en el esquema; `expiry`/`note`
-  son requeridos nullable en el contrato, aunque el parser admite su ausencia
-  como `null` por compatibilidad. Esa tolerancia no cambia el ejemplo.
+  son requeridos nullable en el contrato. La tolerancia anterior del parser a su
+  ausencia se corrigió localmente en la auditoría de opcionales al final.
+  Esa corrección no cambia el ejemplo ni está desplegada.
 - Telegram oficial: [sendMessage](https://core.telegram.org/bots/api#sendmessage)
   es texto de 1–4096 caracteres después del parseo de entidades; no es el
   transporte de estas tarjetas. V4 usa
@@ -382,3 +383,379 @@ Confirmaciones del script prueban recibo, no aspecto visual: revisa el chat.
 No enviar secretos ni logs privados como evidencia. El ejemplo histórico oficial
 del HTML no se envía mediante ese live: son tres fixtures ficticios distintos.
 No hay cambios cloud ni garantía exactamente una vez.
+
+## Ajustes visuales aprobados — despliegue verificado (2026-11-02)
+
+El formatter local evita repetir la tienda debajo del precio: el nombre sigue
+en el botón de compra. Las caducidades usan «Hasta el 20 de octubre», sin hora
+ni año, según la fecha de `Europe/Madrid`. El mínimo histórico destaca su
+etiqueta con `<mark>`, mientras que el cupón conserva `<code>`. En bundles,
+«En tu lista de deseos» se muestra con `<mark>` y «En tu Colección» con `<code>`.
+
+La sintaxis elegida (`mark`, `b`, `code` y `footer`) ya forma parte de Rich HTML
+documentado por Telegram. No se añaden tags, estilos CSS, emojis, campos ni datos
+externos. El cambio no altera precios, selección, enlaces ni persistencia. El
+despliegue está verificado en [I7 §19](I7-operacion.md#19-despliegue-autorizado-de-ajustes-rich--2026-11-02).
+El preview visual es una aproximación y no acredita el render real.
+
+## Seguimiento local NO desplegado — 2026-11-02
+
+Se preservaron los **15 archivos dirty** iniciales. Sin secretos/configuración
+privada, cuenta cloud, OAuth real, assets descargados, deploy, envíos ni commits.
+La versión histórica activa registrada es
+`9eedc6a6-7599-4350-aaa9-3250e58e1cdb`; no se consultó de nuevo.
+
+### Presentación y preview exacto
+
+- Solo el fixture **ficticio** 2 pierde Velvet Moon Afterdark: Clockwork Reef
+  conserva ambas tiendas, URLs y cupón/caducidad, con banner opcional como 1.
+  No hay filtro de juegos en el formatter real; las pruebas multijuego,
+  contratos oficiales y multipartes siguen preservando juegos/ofertas/enlaces.
+- Mínimo histórico vuelve a `<p>Mínimo histórico: X</p>` o
+  `<p>Mínimo histórico</p>` para H/N con dato null; sin `<mark>`. Numéricos
+  (incluido cero), null, señales oficiales y deduplicación H/N intactos.
+- Bundle: «Comprar en Atlas Bundles» (misma regla para todas las tiendas);
+  nombre de tienda solo en botón, no cabecera separada. Waitlist y Colección
+  usan `<mark>`, también Colección sola. No se alteran títulos/URLs recibidos.
+- Preview v4 existente fuera del repo actualizado; su HTML es la salida real,
+  reemplazando **solo** las dos imágenes por placeholders locales explícitos.
+  CSP sin red/assets. No se reformatean planes Rich/texto ya persistidos.
+
+| Ejemplo | Bytes UTF-8 | countBlocks | Imágenes | Partes |
+| --- | ---: | ---: | ---: | ---: |
+| 1 con banner | 508 | 8 | 1 | 1 |
+| 2 con banner | 796 | 14 | 1 | 1 |
+| 3 | 1129 | 20 | 0 | 1 |
+| 1 sin banner | 428 | 7 | 0 | 1 |
+| 2 sin banner | 717 | 13 | 0 | 1 |
+
+Medido con `utf8Length/countBlocks/countImages` exportados por el runtime real.
+`countBlocks` **incluye footer**. Las métricas previas 21/20 omitían footers:
+aquellos HTML tenían 23/21; el nuevo bundle tiene 20 al quitar la línea tienda.
+Assertions exactas de HTML ejemplo 2 y de métricas ambas variantes en
+`tests/telegram-preview.test.mjs`.
+
+### Colección: recorrido y diagnóstico limitado
+
+Fuente pública consultada:
+[GET Collection](https://github.com/IsThereAnyDeal/API/blob/master/docs/routes/collection/games.v1.yaml),
+[ejemplo oficial](https://github.com/IsThereAnyDeal/API/blob/master/docs/routes/collection/examples/resp.games.get.v1.success.yaml).
+Devuelve **array completo de juegos con `id` UUID**, requiere `coll_read`;
+no documenta offset/limit ni cursor. No se inventa paginación ni se siguen
+cabeceras Link. Fixture oficial de OpenAPI probado con el cliente real y
+formatter. `parseGameIds` toma `id` (no copy/group/slug), valida todos y
+normaliza minúsculas; un ID inválido rechaza todo, no inventa pertenencia.
+
+`bridge` usa el scope **persistido del grant efectivo**, no el mero scope
+solicitado por la aplicación. Solo carga Colección si hay bundles nuevos que
+cruzan Waitlist (`wait_read`); la carga se reutiliza en ese ciclo. Cruza IDs de
+**todos** los niveles/juegos y pasa coincidencias a `formatBundle`.
+Sin `coll_read` no llama Collection y no marca; no significa «no poseído».
+HTTP 403/503, red, timeout, 429, JSON/shape inválido o cuerpo superior al límite
+local de **1.500.000 unidades de string** producen fallback sin marcas,
+con warning `collection_<categoría>`. Es una cota local posterior a leer el
+cuerpo, no un máximo/paginación del servicio ni límite previo de descarga.
+No se amplió arbitrariamente ni se añadieron llamadas reales.
+
+`saveBundlePlan` persiste atómicamente `detail_json` con `collection` y
+`parts_json`/`delivery_parts` Rich. Recuperación entrega **esas partes**, no
+consulta ni re-enriquece planes existentes. Tras un fallback queda `collection: []`;
+recuperar después el servicio o permiso **no añade retroactivamente la marca**.
+Deduplicación por `bundle:<id>` evita repetir un bundle ya conocido. Sin
+garantía de entrega exactamente una vez ni cambios en baseline/gates/recibos.
+
+Bug defensivo reproducido y corregido: la frontera del bridge asumía que
+Waitlist/Collection de cualquier implementación del puerto venían en minúscula;
+IDs UUID uppercase no coincidían antes de formatear/persistir. Ahora normaliza
+ambos sets. **El cliente real ya normalizaba**: no se atribuye por ello la
+incidencia del usuario a ese bug. Ausencia de scope efectivo, fallos de lectura,
+cota local, ID diferente o snapshot persistido previo son causas plausibles,
+no confirmadas. No hay datos del grant/respuesta/plan real para elegir una.
+No se inventa ownership por título/slug/tienda y no se propone OAuth real sin
+permiso. Las pruebas cubren ambos/solo colección, scopes ausentes, fallos
+403/503/shape/red/429, snapshot durable, recuperación sin reformat y no repetición.
+
+### USD / EUR: límite oficial
+
+[Contrato oficial del feed `/bundles/v1`](https://github.com/IsThereAnyDeal/API/blob/master/docs/routes/bundles/bundles.v1.yaml)
+consultado junto a [docs.isthereanydeal.com](https://docs.isthereanydeal.com/)
+(2.11.0): parámetros `country`, `offset`, `limit`, `mature`, `expired`, `sort`.
+`country` es ISO 3166-1 alpha-2; **no documenta `currency` ni opción EUR**.
+El cliente conserva `country=ES&mature=true`, sin parámetro inventado.
+El ejemplo oficial trae USD y permanece `87,96 US$`: no se convierte ni
+renombra a EUR, y ES no garantiza la moneda. Test fija parámetros oficiales
+y preservación amount/amountInt/currency. No se hizo petición real del feed ES.
+
+### QA reproducible ejecutado
+
+```powershell
+npm test -- tests/telegram-preview.test.mjs tests/notifications.test.ts tests/bundles.test.ts tests/official-contract.test.ts tests/official-preview.test.mjs tests/bridge-cycle.test.ts tests/itad-client.test.ts tests/local-simulation.test.ts tests/rich.test.ts --maxWorkers=1
+npm run typecheck
+```
+
+Resultado final: **370 tests / 9 archivos**, exit **0** (14,81 s);
+typecheck exit **0**. Warning SQLite experimental, sin fallos finales.
+Comprobación adicional en memoria con `compilePreviewRuntime/buildExamples`:
+**3/3 artículos del preview iguales literalmente** al formatter tras sustituir
+solo los **2 placeholders** por sus `<img>`; métricas con footer confirmadas,
+exit **0**. `git diff --check`: exit **0**. El primer check de métricas por
+stdin perdió el separador Unicode en PowerShell; repetido con `\u00b7`, pasó
+sin cambiar el HTML.
+En una iteración previa fallaron una expectativa de título del nuevo test y
+su tipo de mock; corregidos y vuelto a ejecutar el conjunto afectado.
+Sin full suite, Wrangler D1/cron ni dry-run: no cambian schema/presupuestos/
+algoritmo de packing. QA durable usa SQLite local de prueba, no estado real.
+Render real, grant efectivo/respuesta/plan del aviso recibido y salud actual
+requieren evidencia autorizada posterior; no se ejecutaron.
+
+## Auditoría de opcionales y Colección — 2026-11-02 (NO desplegada)
+
+Trabajo sobre **17 archivos dirty previos**, preservados sin revertir, stage ni
+commit. Sin lectura de secretos/config privadas, cloud/D1 real, OAuth/refresh
+real, mensajes, assets descargados ni deploy. Red solo para documentación
+pública. No se atribuye la incidencia del usuario a una causa real sin evidencia.
+
+### Opcionales: contrato frente a presentación
+
+Fuentes oficiales consultadas de nuevo: [OpenAPI 2.11.0 fijado](https://raw.githubusercontent.com/IsThereAnyDeal/API/7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f/dist/openapi.json),
+[docs públicas](https://docs.isthereanydeal.com/),
+[ejemplo notification-waitlist](https://github.com/IsThereAnyDeal/API/blob/7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f/docs/webhooks/examples/event.notification-waitlist.yaml)
+y [ping](https://github.com/IsThereAnyDeal/API/blob/7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f/docs/webhooks/ping.yaml).
+Fixtures oficiales existentes contrastados por `official-contract.test.ts`.
+`ping` lleva JSON `"pong"`; no hay cambio del receptor mock.
+
+- Avisos: `historyLow`, `voucher`, `expiry`, `flag` son **requeridos nullable**,
+  no campos que se puedan suprimir del JSON. El render omite precio mínimo,
+  cupón/caducidad cuando son `null`; también cupón `""`, descuento **0** y foto
+  sin URL segura. `cut` es entero requerido 0–100: ausencia/null/fuera de rango
+  rechazan el lote completo antes de entregar, no se convierten en 0.
+- Marcas de Waitlist/Colección: solo aparecen si hay coincidencia en los sets
+  enriquecidos del bundle; sin coincidencia no hay párrafo/etiqueta vacíos.
+  Banner ausente no elimina título, precio ni enlaces.
+- **Elección para coordinador:** mantener H/N con `historyLow:null`.
+  `obj.deal-flag` define H = Historical Low y N = New Historical Low, sin
+  condicionarlos a un precio comparativo. `null` significa que no hay precio
+  numérico disponible, no anula esa señal independiente. Se conserva la etiqueta
+  aprobada «Mínimo histórico»; no se inventa un importe ni un flag. Cuando hay
+  importe se mantiene la deduplicación existente del primer H/N.
+- Bundle: `expiry` y `note` requeridos permiten `null`; `tiers[].price` requerido
+  permite `null`; `details` **opcional string**, no admite `null` en la entrada
+  oficial. Ausencia de `details` se normaliza al `null` del modelo interno.
+  La nota sigue conservada en datos, nunca visible por decisión anterior.
+
+Se conserva la tolerancia preexistente del parser de bundles para `expiry`/`note`
+ausentes y `details:null`, normalizados a `null` interno. Esa compatibilidad no
+cambia el contrato oficial ni se extiende a precios, descuentos u otros campos
+obligatorios. Esta petición visual no endurece entradas antes aceptadas ni
+modifica baseline o planes anteriores.
+
+### Colección: traza completa y límites del diagnóstico
+
+Contrato [GET /collection/games/v1](https://github.com/IsThereAnyDeal/API/blob/7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f/docs/routes/collection/games.v1.yaml),
+[Collection Game](https://github.com/IsThereAnyDeal/API/blob/7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f/docs/routes/collection/schemas/obj.collection.game.yaml)
+y [ejemplo](https://github.com/IsThereAnyDeal/API/blob/7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f/docs/routes/collection/examples/resp.games.get.v1.success.yaml):
+array de juegos; sin parámetros de paginación/cursor ni envoltorio. Se realiza
+una sola petición; Link inventado no se sigue.
+
+Campos requeridos oficiales: `id` **UUID del juego**, `slug`, `title`, `type`
+(nullable), `assets` (puede ser `{}`), `mature`, `group` (número ≥0) y `added`
+(fecha/null). `group` es categoría, **no ID del juego**. No se usan IDs internos
+numéricos, IDs de copias, títulos ni slugs para deducir propiedad.
+El endpoint de copias no garantiza cubrir cada juego en Colección; no sustituye
+al de juegos. Los parsers de enriquecimiento existentes son proyecciones:
+`parseGameIds` verifica todos los UUID y descarta los demás campos; no es un
+validador integral de Collection Game. No se cambió esa arquitectura.
+
+Recorrido local:
+
+1. `src/oauth.ts`: solicita `notifications wait_read coll_read`, acepta
+   `token_type:Bearer` (case-insensitive), tokens opacos sin suponer JWT.
+   `src/d1-storage.ts` conserva el grant efectivo cifrado. `bridge.ts` toma
+   `tokens.scope` o el scope del resultado de refresh, no el solicitado
+   inicialmente. El **access token** va en Authorization Bearer; refresh token
+   solo al endpoint de tokens; API key del feed no sirve para Colección.
+2. `src/itad-client.ts:collectionGameIds` → GET OAuth → `parseGameIds` →
+   UUID lowercase. Sin llamadas para paginar. Red/timeout/HTTP/429/JSON/shape
+   se clasifican; el límite local es 1.500.000 unidades de string tras leer
+   el cuerpo, no un límite del contrato.
+3. `src/bridge.ts:loadCollection/scanBundles`: solo tras baseline, gate debido,
+   bundles nuevos válidos y cruce Waitlist; requiere `wait_read` para el cruce
+   y `coll_read` para propiedad. Sin `coll_read` devuelve set vacío sin warning
+   ni petición. Fallos devuelven set vacío con `collection_<categoría>`;
+   un 429 también retrasa agenda. Carga una sola vez por check, incluso si falla;
+   no existe caché de Colección persistente entre checks. Cruza todos los
+   niveles/juegos por UUID normalizados.
+4. `src/bundles.ts:gameLine` dibuja las coincidencias. **Avisos Waitlist normales
+   no reciben Colección:** `bridge.ts` en Details solo carga banners y llama
+   `formatNotification`; `notifications.ts:FormatOptions` solo contiene banners.
+   Test nuevo lo reproduce con `coll_read` y UUID presente en Colección.
+5. `src/d1-storage.ts:saveBundlePlan` guarda snapshot `collection`, partes y formato
+   Rich mediante batch/INSERT OR IGNORE. Delivery lee `delivery_parts`, no vuelve
+   a formatear/enriquecer el aviso. Plan pendiente o confirmado sin marcas
+   permanece así aunque más tarde funcionen web/Collection o se conceda scope.
+   `bridge.ts:deliver` confirma recibo solo tras éxito Telegram y CAS; si se
+   pierde el recibo después del envío puede haber duplicado. No se prometen
+   entregas exactamente una vez ni se modifican recibos/planes ya persistidos.
+
+**No está demostrada la causa en producción.** Que al abrir ITAD la pertenencia
+funcione no prueba el scope del bot, respuesta del API en el momento del plan,
+UUID cruzado ni HTML persistido. El bug de uppercase corregido en trabajo previo
+solo afecta implementaciones del puerto que no normalizaban; el cliente real ya
+normalizaba. En esta auditoría no se añade otro supuesto arreglo de Colección.
+
+Diagnóstico limitado al resumen de logs ya existente:
+[procedimiento del usuario](I7-operacion.md#riesgos-y-señales-de-operación-del-rediseño).
+Compartir **solo** `bridge_cycle`: `bundles.state`, `bundles.planned`,
+`calls.itadCollection`, `warnings/errors` redactados; no UUID/snapshots,
+cuenta/chat, tokens, payloads ni request logs. Para datos antiguos puede no
+existir evidencia de aquel instante: una lectura posterior no demuestra qué
+ocurrió. Esta tarea **no autoriza** obtener esos datos mediante cloud o llamadas reales.
+
+**Pregunta al usuario/coordinador:** ¿la marca se esperaba en un bundle o en un
+aviso Waitlist normal? Extenderla a avisos normales sería funcionalidad nueva,
+no reparación de un fallo demostrado. No se implementó sin esa decisión.
+
+### ¿Los bundles tienen imagen?
+
+[Bundle oficial](https://github.com/IsThereAnyDeal/API/blob/7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f/docs/routes/bundles/schemas/obj.bundle.yaml)
+no define imagen/banner/assets **propios del bundle**.
+`tiers[].games[]` sí usa `obj.game` con `assets`: mapa de claves opcionales
+`banner145`, `banner300`, `banner400`, `banner600`, `boxart`. El ejemplo oficial
+RimWorld incluye imágenes de sus juegos; no acredita un banner propio del pack.
+`counts.media` tampoco proporciona URL ni una imagen.
+
+Estado de la auditoría anterior (reemplazado por el banner autorizado abajo):
+el snapshot público `itad-openapi.json` y el preview oficial conservan
+el JSON original como evidencia fuera de tarjetas. `parseBundles/bundleGame`
+descarta los assets de juegos; `BundleGame`, `BundleNotice` y su snapshot D1
+**no los conservan**. `formatBundle` no emite `<img>`. Para avisos normales se
+extrae solo el mejor banner seguro de Waitlist (600→400→300); se conserva su
+URL en el HTML planificado, no el mapa de assets ni los bytes de imagen.
+No se implementó banner de bundle: elegir imagen de un juego o collage requiere
+decisión del usuario y no equivale a recibir una imagen oficial del bundle.
+
+Telegram consultado: [sendMessage](https://core.telegram.org/bots/api#sendmessage)
+devuelve Message tras éxito y admite 1–4096 caracteres; las tarjetas actuales
+usan [sendRichMessage](https://core.telegram.org/bots/api#sendrichmessage), no
+sendMessage. Sin cambios de transporte, límites ni fallbacks de imagen.
+
+### QA de esta auditoría
+
+```powershell
+npm test -- tests/validation.test.ts tests/notifications.test.ts tests/bundles.test.ts tests/official-contract.test.ts tests/itad-client.test.ts tests/bridge-cycle.test.ts --maxWorkers=1
+npm run typecheck
+git diff --check
+```
+
+Suite dirigida final: **412 tests / 6 archivos, exit 0**, 7,57 s. Typecheck
+**exit 0**. Warning SQLite experimental solamente; SQLite de tests local,
+no D1 real. Regresiones: null/ausencia, cut inválido en lote, H/N sin precio,
+sin etiquetas vacías, assets oficiales, alcance de marcas, scope ausente,
+401/403/503/JSON/shape/red/timeout/429, caché de fallo y planes pendientes
+entregados sin re-enriquecer después de recuperación.
+No full suite, integración Wrangler, dry-run, despliegue ni comprobación real
+de render/entrega. Los ajustes son **locales NO desplegados**.
+
+## Banner per-game autorizado — 2026-11-02 LOCAL NO DESPLEGADO
+
+Reemplaza únicamente la decisión anterior de no mostrar imágenes en bundles.
+Se preservaron los 18 archivos dirty iniciales, sin reset, stage ni commit.
+No cambia el flujo de Colección ni su telemetría, filtros, gates, scopes,
+cadencias, deduplicación o recuperación.
+
+### Contrato y decisiones
+
+Reconsultados solo documentos públicos: Bundle y su ejemplo oficial fijado
+arriba, `notification-waitlist`, `ping` y Telegram `sendMessage` /
+`sendRichMessage` / Rich HTML. Bundle referencia `tiers[].games[]` → `obj.game`;
+`obj.asset-map` enumera banners opcionales 600/400/300/145 y boxart.
+No hay una imagen propia del pack. El ejemplo RimWorld del OpenAPI fijado se
+usa como fixture **sin modificarlo** y sin descargar sus imágenes.
+
+- Parser: proyecta el primer banner HTTPS aceptado por `safeImageUrl`, orden
+  `banner600 → banner400 → banner300 → banner145`, sin construir/reparar URLs.
+  Assets ausentes, vacíos, malformados o inseguros no invalidan juegos/bundles.
+  No se usa boxart. Waitlist normal conserva su selección anterior.
+- Modelo: `BundleGame.banner?: string | null` conserva el mejor URL necesario,
+  no el mapa completo ni los bytes del asset. `BundleNotice` y `saveBundlePlan`
+  ya guardan JSON íntegro del modelo: no requiere migración ni cambio de storage.
+  Roundtrip probado con storage real de aplicación sobre SQLite **en memoria**.
+  Ausencia del campo en planes antiguos sigue válida; no se re-enriquece ni se
+  reescribe HTML persistido. La deduplicación por ID permanece igual.
+- Formatter: primer juego con banner válido **y** en Waitlist, respetando orden
+  de tiers/juegos (no orden de IDs de Waitlist). Sin juego de Waitlist con
+  banner válido → no imagen; no se usa otro juego del bundle (decisión del
+  usuario 2026-11-02). Colección no decide el banner.
+  Solo una imagen, en primera parte, con footer discreto
+  `Imagen de juego: <título>` escapado; no sugiere portada del bundle.
+- `pack` sigue presupuestando bytes/bloques/imágenes incluyendo la etiqueta;
+  división solo por límites, sin truncar ni filtrar juegos, repeticiones,
+  niveles o enlaces. La imagen puede desplazar un límite entre partes.
+  URLs de compra/details y enlaces per-game se conservan exactamente con el
+  escape HTML existente. Unidades indivisibles excesivas siguen rechazadas.
+- Cliente Telegram sin cambios: 400 con imagen permite un único fallback.
+  `stripImages` ahora elimina también el footer identificativo asociado;
+  texto/enlaces/contador de parte quedan intactos. Red/timeout/429/400
+  persistente mantienen el tratamiento existente. No entrega exactamente una vez.
+
+### Maqueta y mediciones exactas
+
+Actualizada únicamente la tercera tarjeta y su medición/título en
+`C:\Users\bella\.copilot\session-state\f5de483d-d716-4c23-bbf1-65bbeb7ce95e\files\telegram-preview-v4.html`.
+Primeros dos ejemplos intactos. Tercero: placeholder **local explícito**
+de Nebula Drifters, no portada propia del bundle. El script real
+`scripts/telegram-preview.mjs` genera ese ejemplo mediante parser/formatter con
+`assets.banner600=https://example.invalid/preview/nebula-banner600.jpg`:
+fixture ficticio no descargable, sin fetch ni envíos.
+La maqueta oficial separada usa ahora `stripImages`, fallback real, para seguir
+offline: no descarga los banners oficiales.
+
+| Ejemplo | bytes UTF-8 | countBlocks | imágenes | partes |
+| --- | ---: | ---: | ---: | ---: |
+| 1 con banner | 508 | 8 | 1 | 1 |
+| 2 con banner | 796 | 14 | 1 | 1 |
+| 3 con banner per-game | 1243 | 22 | 1 | 1 |
+| 1 sin banner | 428 | 7 | 0 | 1 |
+| 2 sin banner | 717 | 13 | 0 | 1 |
+| 3 sin banner | 1129 | 20 | 0 | 1 |
+
+Medidos compilando el runtime real con `compilePreviewRuntime` y
+`buildExamples`, usando `utf8Length/countBlocks/countImages`. Equivalencia
+**3/3 exacta** al sustituir únicamente cada placeholder por su `<img>` del
+fixture; **3/3 exacta** entre `stripImages` y salida `--no-banner`.
+HTML externo completo: **8051 bytes UTF-8**, cero `<img>` remoto, CSP
+`img-src 'none'; connect-src 'none'`. No prueba de render real Telegram.
+
+### QA reproducible y límites
+
+```powershell
+npm test -- tests/bundles.test.ts tests/bundle-banner-storage.test.ts tests/validation.test.ts tests/rich.test.ts tests/telegram.test.ts tests/telegram-preview.test.mjs tests/official-contract.test.ts tests/official-preview.test.mjs tests/bridge-cycle.test.ts tests/notifications.test.ts tests/itad-client.test.ts --maxWorkers=1
+npm run typecheck
+git diff --check
+```
+
+Resultado final: **535 tests / 11 archivos, exit 0**, 10,89 s; typecheck y
+diff-check **exit 0**. La primera pasada detectó expectativas antiguas de
+«sin imagen», una medida estimada incorrecta y un `undefined` explícito
+incompatible con exactOptionalPropertyTypes; corregidos y reejecutados.
+Solo warning SQLite experimental. Casos: prioridad Waitlist, sin imagen sin
+Waitlist con banner,
+600/400/300/145, unsafe/missing, tiers vacíos/múltiples, repeticiones,
+multipartes y límites, roundtrip/reinicio simulado antiguo/nuevo sin assets,
+no reemplazo de plan existente, exactitud de URLs/contenido, y fallback 400
+aplicable tanto al bundle oficial como al tercer ejemplo.
+
+**Diagnóstico Collection, solo por el usuario:** histórico en dashboard
+Workers Logs si existe; live con
+`node .\node_modules\wrangler\bin\wrangler.js tail --config .\wrangler.production.local.jsonc --format json`,
+detener con Ctrl+C. Compartir solo `bridge_cycle`: `bundles.state`,
+`bundles.planned`, `calls.itadCollection`, `warnings/errors` redactados.
+Nunca cuenta/chat, tokens, datos, UUID, payloads ni request logs o salida
+completa. `itadCollection=0` solo sugiere scope si hubo bundle nuevo planificado,
+no demuestra la causa; `=1` sin warnings no confirma UUID ni propiedad.
+No se ejecutó tail ni se cambió el flujo/telemetría.
+
+Pendiente: aceptación/render/descarga por Telegram y datos reales de Colección.
+Sin full suite, integración D1/cron Wrangler ni comprobación cloud. Sin lectura
+de secretos/config privada, OAuth, estado persistente real, envíos, descarga de
+assets ni deploy. Red usada exclusivamente para documentación pública.

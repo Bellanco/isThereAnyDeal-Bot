@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  BANNER, CONFIRMATION, buildExamples, compilePreviewRuntime, deliverExamples,
+  BANNER, SECOND_BANNER, BUNDLE_GAME_BANNER, CONFIRMATION, buildExamples, compilePreviewRuntime, deliverExamples,
   parseArguments, readHidden, runPreview,
 } from '../scripts/telegram-preview.mjs';
 
@@ -51,14 +51,14 @@ describe('Telegram preview, compiled real formatters and client', () => {
     expect(examples).toHaveLength(3);
     expect(examples).toEqual(buildExamples(runtime));
     expect(examples[0]).toContain(BANNER.replaceAll('&', '&amp;'));
-    expect(examples[0]).toContain('Mínimo histórico:');
+    expect(examples[0]).toContain('<p>Mínimo histórico:');
     expect(examples[0]).not.toContain('Precio anterior:');
-    expect(examples[1]).not.toContain('<img');
+    expect(examples[1]).toContain(SECOND_BANNER);
     for (const label of ['Faro Games', 'Cometa Store', 'Cupón:', '<footer>Hasta ', 'Mínimo histórico']) {
       expect(examples[1]).toContain(label);
     }
     for (const label of ['Nivel 1', 'Nivel 2', 'Nivel 3', '<footer>Hasta ',
-      'en tu lista de deseos', 'en tu Colección', 'Silent Astrolabe']) expect(examples[2]).toContain(label);
+      'En tu lista de deseos', 'En tu Colección', 'Silent Astrolabe']) expect(examples[2]).toContain(label);
     expect(examples[2]).not.toContain('Ejemplo inventado:');
     expect(examples[2]).not.toContain('Nota de ITAD:');
     expect(examples[2]).toContain('https://isthereanydeal.com/game/preview-nebula-drifters/');
@@ -81,22 +81,62 @@ describe('Telegram preview, compiled real formatters and client', () => {
     }
     for (const html of examples.slice(0, 2)) {
       expect(html).not.toMatch(/Precios del juego|Precios de esta tienda|Precio habitual|Mínimo en tienda|Mínimo de esta tienda|Precio anterior|DRM:|Plataformas:|Oferta publicada/);
-      expect(html).toContain('<h4>4,99\u00a0€ · <mark>-75%</mark></h4><p><b>');
+      expect(html).not.toContain('<p><b>Órbita Digital</b></p>');
       expect(html).toContain('<p>Mínimo histórico: 4,99\u00a0€</p>');
+      expect(html).not.toContain('<mark>Mínimo histórico');
       expect(html).not.toMatch(/Tienda:|DLC|Paquete|Contenido para adultos|Waitlist/);
     }
     expect(examples[0].match(/Mínimo histórico/g)).toHaveLength(1);
-    expect(examples[1].match(/<p>Mínimo histórico<\/p>/g)).toHaveLength(1);
-    expect(examples[2]).not.toContain('<mark>');
+    expect(examples[1].match(/Mínimo histórico/g)).toHaveLength(1);
+    expect(examples[2]).toContain('<mark>En tu lista de deseos</mark>');
     expect(examples[0]).not.toMatch(/Caduca:|Hasta/);
-    expect(examples[1]).toContain('<footer>Hasta 20:00 08-11-2026</footer>');
-    expect(examples[1]).toContain('<footer>Hasta 20:00 09-11-2026</footer>');
-    expect(examples[2].startsWith('<h3>Constellation Cabinet — Bundle ficticio</h3>')).toBe(true);
+    expect(examples[1]).toContain('<footer>Hasta el 8 de noviembre</footer>');
+    expect(examples[1]).not.toContain('Velvet Moon Afterdark');
+    expect(examples[2].startsWith(`<img src="${BUNDLE_GAME_BANNER}"/><footer>Imagen de juego: Nebula Drifters</footer><h3>Constellation Cabinet — Bundle ficticio</h3>`)).toBe(true);
     expect(examples[2]).not.toContain('990001');
     expect(examples[2]).not.toContain('publicado');
-    expect(examples[2]).toContain('<footer>Hasta 20:00 15-11-2026</footer>');
-    expect(examples[2].match(/<footer>Hasta \d{2}:\d{2} \d{2}-\d{2}-\d{4}<\/footer>/g)).toHaveLength(1); // Only expiry.
+    expect(examples[2]).toContain('<footer>Hasta el 15 de noviembre</footer>');
+    expect(examples[2].match(/<footer>Hasta el \d{1,2} de [a-z]+<\/footer>/g)).toHaveLength(1); // Only expiry.
     expect(buildExamples(runtime, { noBanner: true }).join('')).not.toContain('<img');
+  });
+
+  it.each([false, true])('example 2 is exactly one game with two shops, noBanner=%s', noBanner => {
+    const inputs = [];
+    const recording = {
+      ...runtime,
+      parseWaitlistNotification: value => {
+        inputs.push(structuredClone(value));
+        return runtime.parseWaitlistNotification(value);
+      },
+    };
+    const html = buildExamples(recording, { noBanner })[1];
+    expect(inputs[1].games).toHaveLength(1);
+    expect(inputs[1].games[0].title).toBe('Clockwork Reef');
+    expect(inputs[1].games[0].deals.map(deal => deal.shop.name)).toEqual(['Faro Games', 'Cometa Store']);
+    expect(html).toBe(
+      (noBanner ? '' : `<img src="${SECOND_BANNER}"/>`) +
+      '<h3>Clockwork Reef</h3><h4>7,99\u00a0€ · <mark>-60%</mark></h4>' +
+      '<p>Mínimo histórico: 4,99\u00a0€</p>' +
+      '<tg-button-row><tg-button type="url" style="success" url="https://example.com/preview/store-2?ref=ficticio&amp;offer=1">Comprar en Faro Games</tg-button></tg-button-row>' +
+      '<tg-button-row><tg-button type="url" style="primary" url="https://isthereanydeal.com/game/preview-clockwork-reef/">Ver en ITAD</tg-button></tg-button-row>' +
+      '<hr/><h4>6,99\u00a0€ · <mark>-65%</mark></h4><p>Cupón: <code>REEF-FICTICIO</code></p>' +
+      '<footer>Hasta el 8 de noviembre</footer>' +
+      '<tg-button-row><tg-button type="url" style="success" url="https://example.com/preview/store-3?ref=ficticio&amp;offer=1">Comprar en Cometa Store</tg-button></tg-button-row>',
+    );
+    const bundle = buildExamples(runtime)[2];
+    expect(bundle).toContain('>Comprar en Atlas Bundles</tg-button>');
+    expect(bundle).not.toMatch(/Comprar bundle|<p><b>Atlas Bundles|<code>En tu Colección/);
+    expect(buildExamples(runtime, { noBanner }).map(html => ({
+      bytes: runtime.utf8Length(html), blocks: runtime.countBlocks(html), images: runtime.countImages(html),
+    }))).toEqual(noBanner ? [
+      { bytes: 428, blocks: 7, images: 0 },
+      { bytes: 717, blocks: 13, images: 0 },
+      { bytes: 1129, blocks: 20, images: 0 },
+    ] : [
+      { bytes: 508, blocks: 8, images: 1 },
+      { bytes: 796, blocks: 14, images: 1 },
+      { bytes: 1243, blocks: 22, images: 1 },
+    ]);
   });
 
   it('dry-run never asks for credentials, fetches, or loads cloud config and cleans its own temporary', async () => {
@@ -181,10 +221,10 @@ describe('Telegram preview, compiled real formatters and client', () => {
     expect(deps.write.mock.calls.flat().join('')).toContain('confirmados=0/3');
   });
 
-  it('confirms all three messages after a successful image-only fallback', async () => {
+  it.each([1, 3])('confirms all three messages after a successful image-only fallback at call %s', async failureAt => {
     let calls = 0;
     const deps = delivery({ transport: vi.fn(async () => {
-      if (++calls === 1) return Response.json({ ok: false }, { status: 400 });
+      if (++calls === failureAt) return Response.json({ ok: false }, { status: 400 });
       return Response.json({
         ok: true, result: { message_id: calls, chat: { id: Number(CHAT), type: 'private' } },
       });
@@ -192,6 +232,8 @@ describe('Telegram preview, compiled real formatters and client', () => {
     expect(await deliverExamples(runtime, buildExamples(runtime), deps)).toBe(3);
     expect(deps.transport).toHaveBeenCalledTimes(4);
     expect(deps.sleep.mock.calls).toEqual([[1000], [1000]]);
+    const retried = (await deps.transport.mock.calls[failureAt][0].json()).rich_message.html;
+    expect(retried).toBe(buildExamples(runtime, { noBanner: true })[failureAt === 1 ? 0 : 2]);
   });
 
   it('never retries 400 without an image', async () => {

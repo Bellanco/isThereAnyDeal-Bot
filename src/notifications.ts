@@ -25,10 +25,9 @@ function gameHead(game: Game, banner: string | undefined): string {
 }
 
 function gameSecondary(game: Game): string {
-  const facts = [
-    game.historyLow && `Mínimo histórico: ${money(game.historyLow)}`,
-  ].filter(present);
-  return facts.map(fact => `<p>${esc(fact)}</p>`).join('');
+  return game.historyLow === null
+    ? ''
+    : `<p>Mínimo histórico: ${esc(money(game.historyLow))}</p>`;
 }
 
 function dealBlock(deal: Deal, showHistoryFlag: boolean): string {
@@ -36,7 +35,6 @@ function dealBlock(deal: Deal, showHistoryFlag: boolean): string {
     deal.voucher && `Cupón: <code>${esc(deal.voucher)}</code>`,
   ].filter(present);
   return `<h4>${esc(money(deal.price))}${deal.cut > 0 ? ` · <mark>-${deal.cut}%</mark>` : ''}</h4>` +
-    `<p><b>${esc(deal.shop.name)}</b></p>` +
     offer.map(line => `<p>${line}</p>`).join('') +
     expiryFooter(deal.expiry) +
     (showHistoryFlag && (deal.flag === 'H' || deal.flag === 'N') ? `<p>${FLAG_LABEL}</p>` : '');

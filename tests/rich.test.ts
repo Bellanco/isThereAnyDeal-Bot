@@ -39,7 +39,7 @@ describe('text helpers', () => {
     for (const value of [
       null, undefined, 5, {}, '', 'http://cdn.example/a.jpg', 'HTTPS://cdn.example/a.jpg', '//cdn.example/a.jpg',
       'https://cdn.example/a b', 'https://cdn.example/a"b', 'https://cdn.example/a<b', 'https://cdn.example/a>b',
-      'https://cdn.example/a\nb', 'https://',
+      'https://cdn.example/a\nb', 'https://cdn.example/\uD800', 'https://',
     ]) {
       expect(safeImageUrl(value)).toBeNull();
     }
@@ -65,20 +65,20 @@ describe('when', () => {
   it('uses a native standalone footer without bold or arbitrary size attributes, omitting null', () => {
     expect(expiryFooter(null)).toBe('');
     const html = expiryFooter('2024-03-21T23:59:59Z');
-    expect(html).toBe('<footer>Hasta 00:59 22-03-2024</footer>');
+    expect(html).toBe('<footer>Hasta el 22 de marzo</footer>');
     expect(countBlocks(html)).toBe(1);
     expectWellFormed(html);
   });
 
   it('formats a fixed Spain/Madrid date in winter and summer', () => {
-    expect(when('2026-01-15T12:34:00Z')).toBe('13:34 15-01-2026');
-    expect(when('2026-07-15T12:34:00Z')).toBe('14:34 15-07-2026');
+    expect(when('2026-01-15T12:34:00Z')).toBe('15 de enero');
+    expect(when('2026-07-15T12:34:00Z')).toBe('15 de julio');
   });
 
   it('uses the Madrid date across a UTC day boundary and at a daylight-saving transition', () => {
-    expect(when('2026-12-31T23:30:00Z')).toBe('00:30 01-01-2027');
-    expect(when('2026-03-29T01:30:00Z')).toBe('03:30 29-03-2026');
-    expect(when('1970-01-01T00:00:00Z')).toBe('01:00 01-01-1970');
+    expect(when('2026-12-31T23:30:00Z')).toBe('1 de enero');
+    expect(when('2026-03-29T01:30:00Z')).toBe('29 de marzo');
+    expect(when('1970-01-01T00:00:00Z')).toBe('1 de enero');
   });
 });
 

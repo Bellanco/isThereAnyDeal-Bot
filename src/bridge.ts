@@ -650,7 +650,7 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
     await ensurePollLease();
     try {
       summary.calls.itadCollection++;
-      return new Set(await deps.itad.collectionGameIds(token));
+      return new Set((await deps.itad.collectionGameIds(token)).map(id => id.toLowerCase()));
     } catch (error) {
       noteRateLimit(error);
       warn(`collection_${errorCategory(error)}`);
@@ -734,7 +734,7 @@ async function execute(deps: BridgeDependencies, gated: boolean): Promise<CycleS
     if (candidates.length === 0) return true;
 
     await ensurePollLease();
-    const waitlist = new Set((await waitlistGames(token)).map(game => game.id));
+    const waitlist = new Set((await waitlistGames(token)).map(game => game.id.toLowerCase()));
     const matches = new Map<number, string[]>();
     const unmatched: string[] = [];
     for (const bundle of candidates) {

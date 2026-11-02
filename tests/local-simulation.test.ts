@@ -8,15 +8,15 @@ const AT = '2026-10-31T12:10:00.000Z';
 const noticeId = (index: number) => `00000000-0000-4000-a000-${String(index).padStart(12, '0')}`;
 const notice = (index: number) => parseWaitlistNotification(simulatedDetail(noticeId(index), index, AT));
 
-// tests/cron.integration.mjs needs a 20-part Rich backlog: the I6 drain (7 ticks) and the
+// tests/cron.integration.mjs needs a 17-part Rich backlog: the I6 drain (6 ticks) and the
 // 429/403 checks run on it. The title length grows with the index, so several widths are pinned.
 describe('local simulation notices', () => {
-  it.each([2, 5, 8, 11, 98, 101, 1001])('splits large notice %i into exactly 20 Rich parts', index => {
+  it.each([2, 5, 8, 11, 98, 101, 1001])('splits large notice %i into exactly 17 Rich parts', index => {
     const large = notice(index);
     expect(large.games).toHaveLength(SIMULATED_LARGE_NOTICE_GAMES);
     const banners = new Map(large.games.slice(0, 2).map((game, i) => [game.id, `https://example.invalid/sim/banner-${index}-${i}.jpg`] as const));
     for (const parts of [formatNotification(large, { banners }), formatNotification(large)]) {
-      expect(parts).toHaveLength(20);
+      expect(parts).toHaveLength(17);
       expect(Math.max(...parts.map(utf8Length))).toBeLessThanOrEqual(RICH_BUDGET.bytes);
       expect(Math.max(...parts.map(countBlocks))).toBeLessThanOrEqual(RICH_BUDGET.blocks);
       expect(Math.max(...parts.map(countImages))).toBeLessThanOrEqual(RICH_BUDGET.images);
@@ -47,7 +47,7 @@ describe('local simulation notices', () => {
     const banners = new Map(large.games.slice(0, 2).map((game, i) =>
       [game.id, `https://example.invalid/sim/banner-2-${i}.jpg`] as const));
     for (const parts of [formatNotification(large), formatNotification(large, { banners })]) {
-      expect(parts).toHaveLength(20);
+      expect(parts).toHaveLength(17);
       expect(Math.max(...parts.map(utf8Length))).toBeLessThanOrEqual(RICH_BUDGET.bytes);
       expect(Math.max(...parts.map(countBlocks))).toBeLessThanOrEqual(RICH_BUDGET.blocks);
       expect(parts.join('').match(/style="success"/g)).toHaveLength(1190);
@@ -68,7 +68,7 @@ describe('local simulation notices', () => {
     }
     const parts = formatNotification(large);
     const content = parts.map(part => part.replace(/<footer>parte \d+\/\d+<\/footer>$/, '')).join('');
-    expect(content.match(/<footer>Hasta 00:59 22-03-2024<\/footer>/g)).toHaveLength(1190);
+    expect(content.match(/<footer>Hasta el 22 de marzo<\/footer>/g)).toHaveLength(1190);
     expect(content.match(/style="success"/g)).toHaveLength(1190);
     expect(content.match(/style="primary"/g)).toHaveLength(595);
     parts.forEach((part, index) => {

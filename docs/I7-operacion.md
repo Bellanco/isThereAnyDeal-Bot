@@ -1,6 +1,20 @@
 # Operación — despliegues Rich/bundles y estado actual
 
-**Actual (2026-11-01 11:46:48.755025 UTC):** reglas finales Rich desplegadas,
+**Última operación (2026-11-02):** intento autorizado de publicar Workers Logs
+detenido por fallo del dry-run, antes de cualquier deploy. Sin nueva versión,
+reintento ni rollback; observability solo confirmado en configuración local.
+[Comprobaciones y fallo](#21-intento-autorizado-de-publicar-observability--2026-11-02).
+
+**Actual (2026-11-02):** corrección de Unicode mal formado en `safeImageUrl`
+publicada en `cfcd14fb-0843-4481-8217-d8484b138e63` al **100 %**,
+versión creada `2026-11-02T22:38:34.406885Z`, deployment
+`2026-11-02T22:38:35.842788Z`. Status/list coinciden; cron `* * * * *`
+confirmado por salida de triggers, `LIVE_DELIVERY=enabled` y metadata de
+bindings/runtime sin cambios frente a `613fede8-8bc1-4967-bed8-ffcbb3dc9fbd`.
+No se forzó ni observó tick, render, entrega o lectura de Colección en esta
+operación. [Evidencias y límites actuales](#20-reautorizacion-del-usuario-y-revision-de-cierre--2026-11-02).
+
+**Antecedente (2026-11-01 11:46:48.755025 UTC):** reglas finales Rich desplegadas,
 versión `a5249f58-4e5a-4c78-9df8-1aa26b73c7a6` al **100%**, mensaje
 `Deploy final Rich display rules and subtle expiry`. Status y último registro
 del listado coinciden, autor redactado. La salida del deploy confirmó
@@ -86,7 +100,8 @@ feed oficial con Waitlist, no reglas oficiales de notificación de bundles.
 
 No ejecutar pasos siguientes si el anterior carece de evidencia/confirmación.
 Este procedimiento histórico no autoriza operaciones adicionales. El deploy
-actual autorizado figura en §18; no se ejecutaron OAuth ni envíos de prueba.
+actual autorizado figura en §20; no se ejecutaron OAuth ni envíos de prueba
+durante la publicación de la corrección Unicode.
 
 ### Preview móvil sin tocar producción
 
@@ -104,8 +119,9 @@ validadores y cliente Telegram reales compilados en temporal propio, sin D1
 ni cloud. Dry-run imprime HTML, no render exacto del cliente Telegram.
 El formato v4 incluido en la versión listada quita cabeceras resumen y pies técnicos en Rich;
 solo conserva `parte X/Y` en multipartes. Del bundle solo muestra caducidad;
-ofertas Waitlist también muestran solo caducidad, en Madrid `hh:mm dd-mm-aaaa`.
-El ajuste final desplegado (§18) usa en ambas `<footer>Hasta hh:mm dd-mm-aaaa</footer>`,
+ofertas Waitlist también muestran solo caducidad, en Madrid `hh:mm dd-mm-aaaa`
+(formato del deploy del 2026-11-01, actualizado por §19).
+El ajuste desplegado en §18 usaba en ambas `<footer>Hasta hh:mm dd-mm-aaaa</footer>`,
 sin negrita, helper compartido `expiryFooter`/`when` Europe/Madrid existente;
 null no muestra bloque ni etiqueta. Footer es un bloque Rich oficial,
 no CSS/tamaño arbitrario. La maqueta lo aproxima menor y secundario, sin
@@ -128,6 +144,11 @@ compras en example.com, enlaces ITAD por slugs ficticios que pueden no existir.
 Banner conocido HTTP 200 `https://placehold.co/600x280/2b3a55/ffffff/png?text=Nebula+Drifters`
 depende de tercero/Telegram; no se reconsultó. `--no-banner` lo omite.
 ~1 s entre envíos; primer fallo detiene, informa confirmados y espera mínima 429.
+Seguimiento local NO desplegado: el tercer ejemplo ahora tiene un banner
+ficticio **per-game** `https://example.invalid/preview/nebula-banner600.jpg`.
+No es descargable ni una portada de bundle; la maqueta externa solo usa un
+placeholder local explícito. `--no-banner` lo elimina. No se autoriza envío
+real ni descarga en este seguimiento.
 Sin reintentos ambiguos ni persistencia/dedup: relanzar duplica confirmados y
 el intento fallido pudo llegar. 400 con imagen permite un fallback sin imagen;
 400 persistente detiene. No mostrar URL con token/respuestas/ID de chat.
@@ -144,6 +165,24 @@ decoración ausente con entrega perdida. `bundles` informa estado/listados/
 baseline/vistos/planificados/inválidos; `calls` añade `itadWaitlistGames`,
 `itadCollection`, `itadBundles`. Revisar `errors`, `queue`, `sent`, bloqueos y
 edad de cola, no solo `planned`. [Detalle y mediciones locales](I5.md).
+
+**Diagnóstico Colección por el usuario (no ejecutado aquí):** puede revisar el
+histórico en el dashboard Workers Logs **si está disponible**. Para observar
+solo ciclos futuros en live:
+
+```powershell
+node .\node_modules\wrangler\bin\wrangler.js tail --config .\wrangler.production.local.jsonc --format json
+```
+
+Detener con **Ctrl+C**. Compartir únicamente campos de `bridge_cycle`:
+`bundles.state`, `bundles.planned`, `calls.itadCollection` y `warnings/errors`
+**redactados**. No compartir datos de cuenta/chat, tokens, payloads, IDs/UUID,
+URLs privadas ni request logs; no enviar la salida completa de tail.
+`itadCollection=0` solo sugiere falta de scope **si hubo un bundle nuevo
+planificado**, no lo demuestra (hay otros caminos sin llamada). `=1` y sin
+warnings no confirma UUID coincidente ni propiedad. Logs actuales no
+demuestran la pertenencia al crear un plan antiguo. No se modifica el flujo
+Collection ni su telemetría; no se ha consultado cloud.
 
 Todos los juegos/niveles se conservan. Mismo ID relanzado no es nuevo; después
 del baseline solo se leen **50 recientes**, recuperación tras parada larga
@@ -1040,3 +1079,252 @@ aceptación del footer por Telegram ni independencia del correo. Preview
 oficial validado offline; ejemplo real Telegram pendiente de autorización
 y ejecución del usuario, sin deshabilitar la Waitlist. No ejecutar
 reaprovisionamiento histórico de §§1–17 por este deploy.
+
+## 19. Despliegue autorizado de ajustes Rich — 2026-11-02
+
+**Registro histórico**: esta sección describe el despliegue anterior a los
+últimos ajustes. Ver [seguimiento local, Colección/EUR y QA](ejemplos-oficiales-preview.md#seguimiento-local-no-desplegado--2026-11-02)
+y el estado posterior en la sección 20. La versión histórica de esta sección
+no es la actualmente activa.
+
+El usuario autorizó publicar en Telegram los cambios de presentación Rich
+aprobados: quitar la tienda duplicada bajo el precio, caducidad con día y mes,
+etiqueta de mínimo histórico y marcas distintas para Waitlist y Colección.
+Despliegue al Worker existente `itad-telegram-bot` con
+`wrangler.production.local.jsonc`; sin cambios de código durante la operación.
+
+### Comprobaciones y ejecución
+
+Antes del despliegue, `git status --short`, `git diff --check` y
+`git diff --cached --check` mostraron 14 rutas locales modificadas y ningún
+error de formato. `npm run check:prod -- --config .\wrangler.production.local.jsonc --activate`,
+`npm run typecheck`, `npm test -- --no-file-parallelism` y
+`wrangler deploy --dry-run --config .\wrangler.production.local.jsonc --autoconfig=false`
+terminaron con exit **0**. El directorio temporal del dry-run fue eliminado y
+comprobado.
+
+Deploy ejecutado con exit **0**:
+
+```powershell
+node .\node_modules\wrangler\bin\wrangler.js deploy --config .\wrangler.production.local.jsonc --autoconfig=false --message "Deploy approved Rich display tweaks"
+node .\node_modules\wrangler\bin\wrangler.js deployments status --config .\wrangler.production.local.jsonc --json
+node .\node_modules\wrangler\bin\wrangler.js deployments list --config .\wrangler.production.local.jsonc --json
+```
+
+La verificación de `status` coincide con el último registro de `list`:
+
+| Dato | Resultado |
+| --- | --- |
+| Worker | `itad-telegram-bot` existente |
+| Versión activa | `9eedc6a6-7599-4350-aaa9-3250e58e1cdb` |
+| Tráfico | 100 % |
+| Creación | `2026-11-02T12:35:26.659386Z` |
+| Mensaje | `Deploy approved Rich display tweaks` |
+| Trigger reportado en metadata | `deployment` |
+
+No se modificaron variables/configuración, secretos, D1, migraciones, recursos
+ni rutas. No se hizo stage/commit/push, rollback, OAuth, solicitud HTTP de
+prueba, tick manual ni envío a Telegram. La comprobación de metadatos no
+demuestra que el cron haya ejecutado, que una oferta real se procese o cómo se
+vea en clientes Telegram; esos puntos siguen pendientes. No se cuantificó el
+coste cloud.
+
+## 20. Reautorizacion del usuario y revision de cierre — 2026-11-02
+
+La reautorización y las lecturas siguientes son anteriores a la publicación
+Unicode documentada al final de esta sección. La versión `613fede8-…` ya es
+histórica; el estado D1 y el ciclo aquí observados no se reconsultaron tras
+el nuevo deploy.
+
+El usuario ejecutó parada, reautorización y reactivación. Su salida de OAuth
+confirma `notifications wait_read coll_read` y escritura/lectura verificada.
+La sesión pasó de versión 3 a 4, conservando la versión de clave.
+El usuario desplegó su checkout con mensaje `Reauthorize with coll_read`.
+
+Comprobaciones posteriores del asistente, exclusivamente de lectura:
+
+- `check:prod --activate`: configuración local válida, no prueba remota.
+- `deployments list`: versión `613fede8-8bc1-4967-bed8-ffcbb3dc9fbd`
+  al 100 %, creada `2026-11-02T22:18:58.751Z` (registro de deployment).
+- `versions view`: `LIVE_DELIVERY=enabled`, handlers `fetch, scheduled`,
+  binding D1 y nombres de secretos necesarios presentes; no se leyeron valores.
+- `d1 migrations list DB --remote`: ninguna migración pendiente.
+- `tail --format json`, cerrado tras observación: cron `* * * * *`,
+  versión anterior indicada, `bridge_cycle.ok=true`, 24 avisos listados,
+  sin errores/advertencias ni envíos en el ciclo observado.
+- SELECT agregados D1: 3 partes confirmadas, ninguna pendiente/bloqueada,
+  ningún detalle bloqueado ni flag; ambos baselines completos; sesión 4.
+  Último poll observado `listed`, completado a las `22:27:33 UTC`.
+  Próxima revisión de bundles programada para `22:35:25 UTC`, sujeta al gate
+  de consultas y la ejecución real del cron.
+
+La primera consulta agregada con UNION fue rechazada por el límite D1 de
+compound SELECT. Se sustituyó por ocho SELECT separados, todos correctos,
+con cero filas escritas. No hubo modificaciones remotas del asistente,
+OAuth/refresh manual, tick forzado, envío de prueba ni despliegue.
+
+Límites: no se comparó byte a byte el código remoto con el checkout. El ciclo
+observado tenía `bundles.state=not_due`: no demuestra todavía lectura de
+Colección. Una lista `collection=[]` persistida no distingue falta de scope,
+fallo de consulta ni respuesta realmente vacía. Los planes antiguos no se
+recalculan; el bundle 16765 conserva su snapshot sin marcas.
+La próxima oferta y el render móvil real requieren un evento externo.
+
+### Revision completa offline y correccion posterior
+
+ITAD QA revisó el diff y el flujo completo sin editar ni acceder a producción.
+La primera suite completa tuvo 710 aprobados y 2 fallidos: expectativas antiguas
+de banner con Waitlist vacía, incompatibles con la decisión actual del usuario.
+Además reprodujo un banner con surrogate aislado que generaba HTML mal formado;
+era un caso sintético, no un fallo observado en producción.
+
+ITAD Implementacion corrigió `safeImageUrl` para rechazar Unicode mal formado,
+permitiendo usar el siguiente asset seguro o enviar sin imagen. Añadió cobertura
+y reconciliación de expectativas de contratos oficiales.
+
+- Suite completa final: **713 tests / 19 archivos aprobados**, exit 0.
+- `npm run typecheck` y `git diff --check`: exit 0 tras las correcciones.
+- `npm run test:d1` y `npm run test:cron`: exit 0 en QA; cron local drenó
+  17 partes en 6 ticks (3/3/3/3/3/2).
+- Ambos previews `--dry-run`, con y sin banner: exit 0 en QA.
+- Warning SQLite experimental, sin afectar las pruebas.
+
+La corrección de Unicode y sus tests son posteriores al despliegue del usuario;
+se publicaron después con la autorización y evidencias siguientes.
+Los cambios documentales permanecen locales. No se hizo commit/push.
+Las pruebas simuladas no garantizan descarga/render real ni exactly-once ante
+pérdida de recibos; los planes ya guardados no se recalculan.
+
+### Publicación autorizada de la corrección Unicode — 2026-11-02
+
+Permiso explícito del usuario: «Súbela». Se publicó el checkout dirty aprobado
+completo, sin revertir los cambios anteriores ya desplegados por el usuario,
+sin commit/push ni cambios de aplicación durante esta operación.
+El diff confirma `value.isWellFormed()` en `safeImageUrl`: rechaza surrogates
+aislados, permitiendo el siguiente asset seguro o ausencia de imagen.
+No aparecieron cambios inesperados ni diferencias de configuración,
+dependencias o migraciones. No se leyó `claves.local.txt`.
+
+Comandos desde la raíz (PowerShell, salida cloud capturada en memoria y
+filtrada para omitir identidades y valores privados):
+
+```powershell
+git --no-pager status --short
+git --no-pager diff --check
+git --no-pager diff --cached --check
+npm run check:prod -- --config .\wrangler.production.local.jsonc --activate
+npm run typecheck
+# $tmp exclusivo; eliminación en finally y comprobación de ausencia:
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) 'itad-prod-unicode-dryrun-cbfd1506-a09f-4b26-a566-ca381264c723'
+node .\node_modules\wrangler\bin\wrangler.js deploy --dry-run --config .\wrangler.production.local.jsonc --autoconfig=false --outdir $tmp
+node .\node_modules\wrangler\bin\wrangler.js deploy --config .\wrangler.production.local.jsonc --autoconfig=false --message "Fix malformed Unicode rejection in safeImageUrl banners"
+node .\node_modules\wrangler\bin\wrangler.js deployments status --config .\wrangler.production.local.jsonc --json
+node .\node_modules\wrangler\bin\wrangler.js deployments list --config .\wrangler.production.local.jsonc --json
+node .\node_modules\wrangler\bin\wrangler.js versions view cfcd14fb-0843-4481-8217-d8484b138e63 --config .\wrangler.production.local.jsonc --json
+```
+
+Resultados verificados:
+
+| Control | Evidencia |
+| --- | --- |
+| Diff/formato, check activo offline y typecheck | Exit 0; `production_config_valid_offline_only` |
+| Suite completa | 713 tests / 19 archivos aprobados en la revisión anterior; **no repetida** en esta operación, sin cambios inesperados |
+| Dry-run | Exit 0; 139,61 KiB / gzip 32,13 KiB; temporal indicado eliminado; hash de config intacto |
+| Deploy | Exit 0; mismo tamaño; startup 2 ms, upload 6,68 s, triggers 2,97 s |
+| Versión activa | `cfcd14fb-0843-4481-8217-d8484b138e63`, una sola versión al 100 % |
+| Fecha de versión (`versions view`) | `2026-11-02T22:38:34.406885Z` |
+| Deployment | `1e83d8d1-d946-4f16-8e1a-b3c267ab0727`, `2026-11-02T22:38:35.842788Z` |
+| Status/list | Coinciden con el registro más reciente ordenado por fecha, mensaje autorizado y autor (redactado) |
+| Trigger | Metadata `deployment`; salida del deploy confirma `schedule: * * * * *` |
+| Configuración remota | Bindings completos y runtime idénticos a metadata de `613fede8-…`; handlers `fetch,scheduled` |
+| Vars/D1 | `APP_MODE=production`, `LIVE_DELIVERY=enabled`, key version `k2`; vars públicas y DB ID coinciden con config local; callback, nombres de bindings/secretos y base D1 preservados |
+
+Worker y D1 existentes; `workers_dev=false`, `preview_urls=false`, sin rutas
+en la configuración conservada. No se crearon recursos; coste nuevo
+provisionado: ninguno. Consumo Workers/D1 sujeto al plan existente, no medido.
+La comparación utilizó metadata, no valores de secretos ni descarga de código
+remoto para comparación byte a byte.
+
+No hubo OAuth/refresh manual, cambios de secretos, migraciones, consultas o
+escrituras D1 directas, manipulación de cola/baselines/gates, tick forzado,
+tail, requests HTTP de prueba ni mensajes de prueba. El cron natural permanece
+habilitado y puede efectuar las operaciones normales del servicio.
+No se observó en esta operación un tick funcional, lectura real de Colección,
+render móvil, descarga de banner, entrega ni oferta natural sin correo.
+Las comprobaciones D1/ciclo previas conservan únicamente su contexto anterior.
+Sin rollback ni reintento de deploy. Operación remota terminada tras verificar
+versión y configuración; solo README y este documento se actualizaron después.
+
+## 21. Intento autorizado de publicar observability — 2026-11-02
+
+Permiso explícito: «Sube el código», sobre el checkout actual y el Worker
+existente `itad-telegram-bot`, con `wrangler.production.local.jsonc`.
+Mensaje previsto: `Enable Workers Logs and invocation logging`.
+**No se ejecutó el deploy:** la condición de detenerse ante un fallo se aplicó
+al dry-run. No hay ID ni fecha de nueva versión o deployment.
+
+### Evidencias locales ejecutadas
+
+- `git status --short` y `git diff --stat`: 24 rutas tracked modificadas y
+  `tests/bundle-banner-storage.test.ts` sin seguimiento; cambios anteriores
+  preservados, sin modificaciones de aplicación durante esta operación.
+- Diff revisado de `scripts/check-production.mjs`,
+  `tests/production-config.test.mjs` y `wrangler.production.jsonc`:
+  bloque opcional estricto de observability y su cobertura.
+- `npm test -- tests/production-config.test.mjs`: **29 tests / 1 archivo**,
+  exit 0, inicio local `2026-11-02 23:52:49` (Europe/Madrid).
+- `npm run check:prod -- --config .\wrangler.production.local.jsonc --activate`:
+  exit 0, `production_config_valid_offline_only`.
+- `git diff --check` y `git diff --cached --check`: exit 0 antes del dry-run.
+- Inspección filtrada de config local: `LIVE_DELIVERY=enabled`,
+  cron `* * * * *`, binding `DB`, superficie pública desactivada;
+  `logs.enabled=true`, `logs.invocation_logs=true`, `traces.enabled=false`.
+- Runtime instalado: Node `v24.14.1`, Wrangler `4.153.0`; sin instalación.
+  Suite completa anterior de 713 tests no repetida.
+
+### Dry-run fallido y limpieza
+
+Se eligió un temporal exclusivo, comprobado inexistente antes de arrancar:
+
+```powershell
+$tmp = Join-Path ([System.IO.Path]::GetTempPath()) 'itad-prod-observability-dryrun-6249de90-1a2f-45a5-bbdc-d46c2228f563'
+$env:WRANGLER_SEND_METRICS = 'false'
+$env:CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = 'false'
+# Comando ejecutado, fallido; no usar como receta de arranque:
+node .\node_modules\wrangler\bin\wrangler.js deploy --dry-run --config .\wrangler.production.local.jsonc --autoconfig=false --env-file (Join-Path $tmp 'absent.env') --outdir $tmp
+```
+
+Wrangler instalado carga por defecto archivos `.env` también en su entrada
+global; se intentó evitar esa lectura seleccionando una ruta inexistente.
+Node rechazó esa ruta con `not found`, exit **1**. La captura PowerShell con
+`ErrorActionPreference=Stop` interrumpió el bloque; `finally` confirmó
+`temporary_directory_absent=True` y `config_hash_unchanged=true`.
+No hay evidencia de bundle completado ni de dry-run válido.
+
+No se ejecutaron deploy, consultas remotas de metadata, status/list, cron,
+D1, tail, OAuth, migraciones, cambios de secretos, manipulación de cola,
+envíos manuales ni ticks. No se leyeron `claves.local.txt` ni `.env`.
+Solo README y este documento se editaron después; sin commit/push.
+
+La última versión confirmada en la operación anterior es
+`cfcd14fb-0843-4481-8217-d8484b138e63`, al 100 % entonces,
+creada `2026-11-02T22:38:34.406885Z`; **no reconsultada ahora**.
+Cron, vars, bindings, callback y versión de clave locales no se modificaron.
+Observability remoto **no confirmado**: únicamente config local validada,
+sin deploy en este intento. No se crearon recursos ni se midieron costes;
+el consumo natural del Worker/D1 existente continúa sujeto a su plan.
+
+### Continuacion del mismo encargo autorizado
+
+El fallo local se resolvió omitiendo el argumento de archivo inexistente,
+con `CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false` y métricas desactivadas.
+Dry-run exit 0; directorio temporal exclusivo eliminado en `finally`.
+No se alteraron los ajustes aprobados ni se requirió una nueva operación OAuth.
+
+Deploy autorizado con mensaje `Enable Workers Logs and invocation logging`:
+exit 0, trigger `* * * * *`. `deployments status --json` confirma la versión
+`aff935c5-b085-49e2-975d-8691e328490f` al 100 % y el deployment
+`2026-11-02T22:54:08.025238Z`. Se publicó el bloque local con logs e invocaciones
+activados y trazas desactivadas. No se comprobó por separado la ingesta en el panel.
+Sin cambios de secretos, OAuth, migraciones o cola, sin mensajes manuales,
+rollback ni commit/push.

@@ -1,14 +1,14 @@
 import type { Bundle, BundleGame, BundleNotice, BundleTier } from './domain';
-import { buttonRow, attr, esc, expiryFooter, gameUrl, money, pack, type Frame, type Unit } from './rich';
+import { buttonRow, attr, esc, expiryFooter, gameUrl, money, pack, safeImageUrl, type Frame, type Unit } from './rich';
 
 function present<T>(value: T | null | false): value is T {
   return value !== null && value !== false;
 }
 
 function head(bundle: Bundle): string {
-  return `<h3>${esc(bundle.title)}</h3><p><b>${esc(bundle.shop)}</b></p>` +
+  return `<h3>${esc(bundle.title)}</h3>` +
     expiryFooter(bundle.expiry) +
-    buttonRow([{ label: `Comprar bundle en ${bundle.shop}`, url: bundle.url, style: 'success' }]) +
+    buttonRow([{ label: `Comprar en ${bundle.shop}`, url: bundle.url, style: 'success' }]) +
     (bundle.details !== null ? buttonRow([{ label: 'Ver en ITAD', url: bundle.details, style: 'primary' }]) : '');
 }
 
@@ -21,8 +21,8 @@ function tierTitle(tier: BundleTier, index: number): string {
 function gameLine(game: BundleGame, waitlist: ReadonlySet<string>, collection: ReadonlySet<string>): string {
   const id = game.id.toLowerCase();
   const marks = [
-    waitlist.has(id) ? 'en tu lista de deseos' : null,
-    collection.has(id) ? 'en tu Colección' : null,
+    waitlist.has(id) ? '<mark>En tu lista de deseos</mark>' : null,
+    collection.has(id) ? '<mark>En tu Colección</mark>' : null,
   ].filter(present).join(' · ');
   return `<p><a href="${attr(gameUrl(game.slug))}">${esc(game.title)}</a></p>` +
     (marks ? `<p>${marks}</p>` : '');
@@ -38,7 +38,13 @@ export function formatBundle(notice: BundleNotice): string[] {
   const { bundle } = notice;
   const waitlist = new Set(notice.waitlist.map(id => id.toLowerCase()));
   const collection = new Set(notice.collection.map(id => id.toLowerCase()));
-  const units: Unit[] = [{ html: head(bundle) }];
+  const games = bundle.tiers.flatMap(tier => tier.games);
+  const hasBanner = (game: BundleGame) => safeImageUrl(game.banner) !== null;
+  const imageGame = games.find(game => waitlist.has(game.id.toLowerCase()) && hasBanner(game));
+  const image = imageGame
+    ? `<img src="${attr(safeImageUrl(imageGame.banner)!)}"/><footer>Imagen de juego: ${esc(imageGame.title)}</footer>`
+    : '';
+  const units: Unit[] = [{ html: image + head(bundle) }];
   bundle.tiers.forEach((tier, tierIndex) => {
     const heading = `<h4>${esc(tierTitle(tier, tierIndex))}</h4>`;
     if (tier.games.length === 0) {

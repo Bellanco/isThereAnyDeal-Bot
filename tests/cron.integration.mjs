@@ -214,7 +214,7 @@ async function main() {
   assert.equal(idle.bundles.state, 'idle');
   assert.equal(ITAD_CALLS(idle), 0, JSON.stringify(idle));
 
-  // 3. Due tick discovers simulated notice 1 (single part); next due tick discovers notice 2 (20 parts).
+  // 3. Due tick discovers simulated notice 1 (single part); next due tick discovers notice 2 (17 parts).
   await makePollDue();
   const small = summaries((await scheduled()).log)[0];
   assert.equal(small.poll, 'listed');
@@ -242,12 +242,12 @@ async function main() {
   assert.equal(progress[0].poll, 'listed');
   assert.equal(progress[0].calls.itadDetail, 1);
   assert.equal(progress[0].calls.itadWaitlistGames, 1);
-  assert.deepEqual(progress.map(item => item.sent), [3, 3, 3, 3, 3, 3, 2], JSON.stringify(progress));
+  assert.deepEqual(progress.map(item => item.sent), [3, 3, 3, 3, 3, 2], JSON.stringify(progress));
   for (const item of progress.slice(1)) {
     assert.equal(item.poll, 'not_due');
     assert.equal(ITAD_CALLS(item), 0, 'drain ticks never query ITAD/OAuth');
   }
-  console.log(`I6 local cron 20-part progress (ticks triggered back to back, ${drainMs} ms total): ${JSON.stringify(progress)}`);
+  console.log(`I6 local cron 17-part progress (ticks triggered back to back, ${drainMs} ms total): ${JSON.stringify(progress)}`);
   await stopWorker();
   let state = await counts();
   assert.equal(state.baseline, 2);
@@ -270,7 +270,7 @@ async function main() {
   const restarted = summaries((await scheduled()).log)[0];
   assert.equal(restarted.poll, 'not_due', 'the durable gate (not memory) decides after a restart');
   assert.equal(ITAD_CALLS(restarted), 0);
-  // The restarted simulation lists notices 1..n-1 again; due ticks until notice 5 (20 parts) is planned.
+  // The restarted simulation lists notices 1..n-1 again; due ticks until notice 5 (17 parts) is planned.
   // Runs 0 and 1 also force the hourly bundle check: the restarted bundle feed first lists only the
   // baseline bundles (nothing is new, no baseline again), then adds bundle 9101 (Waitlist + Collection game).
   for (let run = 0; run < 6; run++) {
@@ -330,7 +330,7 @@ async function main() {
   assert.equal(bundleParts.length, 1);
   const [bundlePart] = bundleParts;
   assert.deepEqual({ status: bundlePart.status, format: bundlePart.format }, { status: 'confirmed', format: 'rich_html' });
-  assert.ok(bundlePart.text.includes('Juego de bundle 9101.1</a></p><p>en tu lista de deseos · en tu Colección</p>'), bundlePart.text);
+  assert.ok(bundlePart.text.includes('Juego de bundle 9101.1</a></p><p><mark>En tu lista de deseos</mark> · <mark>En tu Colección</mark></p>'), bundlePart.text);
   assert.ok(bundlePart.text.includes('Juego de bundle 9101.2</a></p>'), 'the other game has no marks');
   assert.ok(bundlePart.text.includes('url="https://example.invalid/sim/bundle-9101?ref=affiliate-sim&amp;tier=1"'), 'the store link keeps its affiliate parameters');
   const [throttle] = await query("SELECT next_allowed_at FROM chat_throttle WHERE chat_key = 'telegram'");
@@ -366,7 +366,7 @@ async function main() {
   assert.ok(state.open > 0, 'halted delivery keeps parts pending');
   assert.equal(reportedSends, state.confirmed);
 
-  console.log('Cron local: 1 suite passed; seeded gate, baseline/no history (notices and bundles), not-due ticks without ITAD/OAuth, Rich 20-part drain in 7 ticks, restart without repeating baselines, hourly bundle notice with Waitlist/Collection marks, overlapping ticks (one gate owner), 429 retry_after and 403 halt checks passed on local D1.');
+  console.log('Cron local: 1 suite passed; seeded gate, baseline/no history (notices and bundles), not-due ticks without ITAD/OAuth, Rich 17-part drain in 6 ticks, restart without repeating baselines, hourly bundle notice with Waitlist/Collection marks, overlapping ticks (one gate owner), 429 retry_after and 403 halt checks passed on local D1.');
 }
 
 try {

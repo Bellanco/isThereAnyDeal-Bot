@@ -7,9 +7,21 @@ export function checkProduction(config, activate = false) {
   if (!config || typeof config !== 'object') reject('shape');
   const allowedKeys = [
     '$schema', 'name', 'account_id', 'main', 'compatibility_date',
-    'workers_dev', 'preview_urls', 'send_metrics', 'triggers', 'vars', 'd1_databases',
+    'workers_dev', 'preview_urls', 'send_metrics', 'triggers', 'vars', 'd1_databases', 'observability',
   ];
   if (Object.keys(config).some(key => !allowedKeys.includes(key))) reject('surface');
+  if (Object.hasOwn(config, 'observability')) {
+    const exactObject = (value, keys) => value !== null && typeof value === 'object' &&
+      !Array.isArray(value) && Object.keys(value).length === keys.length &&
+      keys.every(key => Object.hasOwn(value, key));
+    const observability = config.observability;
+    if (!exactObject(observability, ['logs', 'traces']) ||
+        !exactObject(observability.logs, ['enabled', 'invocation_logs']) ||
+        !exactObject(observability.traces, ['enabled']) ||
+        typeof observability.logs.enabled !== 'boolean' ||
+        typeof observability.logs.invocation_logs !== 'boolean' ||
+        typeof observability.traces.enabled !== 'boolean') reject('observability');
+  }
   const vars = config.vars ?? {};
   const allowedVars = [
     'APP_MODE', 'LIVE_DELIVERY', 'OAUTH_CLIENT_ID', 'OAUTH_REDIRECT_URI', 'OAUTH_TOKEN_KEY_VERSION',
