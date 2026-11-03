@@ -308,7 +308,7 @@ QA y preview oficial offline actualizado:
 Estos ajustes ya están en la versión activa indicada arriba; no acreditan
 render/entrega reales.
 
-Preview v4 autocontenido de esta sesión:
+Preview v4 anterior (se conserva sin sobrescribir):
 `C:\Users\bella\.copilot\session-state\f5de483d-d716-4c23-bbf1-65bbeb7ce95e\files\telegram-preview-v4.html`.
 Incluye estos tres ejemplos producidos por los formatters reales, vista
 mobile-first de ~390 px, sin red ni assets externos. Solo el banner es un
@@ -316,7 +316,29 @@ placeholder local explícito; se declara «Aproximación: Telegram adapta colore
 y tipografía a tu tema». Verde/azul son aproximaciones de `success`/`primary`,
 no estilos CSS enviados a Telegram. Las fechas son texto fijo Madrid. No es
 captura ni prueba de render Telegram. Se conservan sin cambios los previews v2
-y v3. El generador visual fue temporal, no es un nuevo comando del proyecto.
+y v3. Su generador visual fue temporal.
+
+**Revisión de fidelidad local — 2026-11-03:** nueva maqueta reproducible:
+`C:\Users\bella\.copilot\session-state\ddc74007-85c8-4cf3-89b9-cb640ffb991a\files\telegram-preview-fiel.html`.
+Las tres muestras contienen literalmente la salida actual del formatter, con
+HTML fuente y fallback `stripImages` inspeccionables. Los `img` originales no
+se reemplazan por `div`: la CSP bloquea recursos; un placeholder neutro
+«Banner de ejemplo» oculta la imagen rota, con opción de quitar banners.
+El placeholder es solo visual, no se envía a Telegram ni acredita tamaño real.
+Se corrigieron títulos/espaciado exagerados, chips `mark` inventados y compra
+verde sólida según el código público nativo de Telegram Desktop: `success`
+usa un tinte, las filas sin `align` distribuyen el ancho y el footer es secundario.
+El preview oficial comparte el mismo helper visual. Colores, escala, fuentes,
+radios y adaptación móvil siguen siendo aproximaciones, **no pixel-perfect**.
+Botones/enlaces permiten inspeccionar URLs con ratón/teclado sin abrirlas.
+Validación local: **238 pruebas aprobadas**, incluyendo Chrome aislado con
+24 combinaciones de ancho/tema/banner; repetición UI en Edge también aprobada.
+Sin cambios productivos ni envíos, cuentas, OAuth o despliegue.
+[Fuentes, diferencias y reproducción QA](docs/ejemplos-oficiales-preview.md#fidelidad-de-las-tres-muestras--2026-11-03-local).
+
+```powershell
+node scripts/telegram-preview-fiel.mjs --output 'C:\Users\bella\.copilot\session-state\ddc74007-85c8-4cf3-89b9-cb640ffb991a\files\telegram-preview-fiel.html'
+```
 
 Medición local del formatter en este checkout (cambios visuales aún no
 desplegados; no acredita render ni entrega reales): ejemplos de una parte
@@ -808,22 +830,42 @@ Definiciones en [`.github/agents/`](.github/agents/):
 
 | Agente | Responsabilidad |
 | --- | --- |
-| ITAD Coordinador | Agente padre seleccionable; elige los hijos segun la tarea. |
-| ITAD Implementacion | Construir el flujo de avisos y la entrega a Telegram, con pruebas. |
-| ITAD QA | Ejecutar pruebas y revisar el comportamiento sin modificar archivos. |
-| ITAD Despliegue | Preparar alojamiento, secretos, persistencia y guia operativa. |
+| ITAD Coordinador | Entrada unica: resuelve alcance/permisos, asigna trabajo acotado y consolida evidencias. |
+| ITAD Implementacion | Crear/corregir clientes OAuth, cron/D1, Telegram Rich/texto, bundles, cruces y pruebas. |
+| ITAD QA | Validar contratos, comportamiento y limites con pruebas locales, sin editar ni instalar dependencias. |
+| ITAD Despliegue | Preparar o diagnosticar Workers/D1, provisioning OAuth, secretos, triggers, logs y recuperacion. |
 
 Seleccionar **ITAD Coordinador** en el chat de VS Code. Los archivos
 definen roles: no ponen en marcha procesos ni despliegan servicios.
-No es necesario invocarlos todos en cada tarea.
+No es necesario invocarlos todos en cada tarea ni crear un agente por endpoint.
+Las invariantes comunes estan en
+[`.github/copilot-instructions.md`](.github/copilot-instructions.md);
+cada especialista contiene solo su metodo, limites y contexto pertinente.
+
+### Cobertura de funcionalidades
+
+| Funcionalidad | Cambios de aplicacion | Validacion sin editar | Operacion |
+| --- | --- | --- | --- |
+| Avisos oficiales OAuth, PKCE/state, refresh y administrador | Implementacion | QA: contratos y flujos simulados | Despliegue: provisioning/permisos |
+| Cron, compuertas, D1, baselines, planes, reservas y recibos | Implementacion | QA: cadencias, reinicios y fallos parciales | Despliegue: triggers, migraciones y recuperacion |
+| Telegram Rich/texto legado, banners y division | Implementacion | QA: limites, Unicode, enlaces y recibos | Despliegue: diagnostico autorizado |
+| Bundles, Waitlist y Coleccion | Implementacion | QA: todos los tiers/juegos, cruces y opcionales | Despliegue: scopes/configuracion |
+| Webhook mock, simulacion y preview | Implementacion | QA: aislamiento y regresiones locales | Despliegue: nunca publicar el receptor mock |
+| Observabilidad y configuracion operativa | Implementacion para logica; Despliegue para configuracion | QA: evidencia offline/redaccion | Despliegue |
+
+El cron de un minuto no cambia la consulta de avisos cada cinco minutos;
+bundles tiene agenda separada de sesenta minutos. Rich conserva compatibilidad
+con planes antiguos de texto y las omisiones visuales no eliminan datos.
+Implementacion cambia el esquema ligado al codigo; Despliegue prepara/aplica
+su procedimiento operativo, con permisos separados y sin archivos solapados.
 
 ### Punto de entrada recomendado
 
 Seleccionar **ITAD Coordinador** en el selector de agentes de VS Code y solicitar,
-por ejemplo: "Coordina la siguiente fase del bot con Workers, TypeScript y D1
-futuro; revisa las limitaciones de los mocks". El coordinador elige automaticamente al hijo adecuado
-segun el resultado solicitado; no es necesario indicar que especialista usar.
-Los hijos no delegan entre si.
+por ejemplo: "Revisa la recuperacion de partes pendientes del flujo OAuth con
+Workers y D1 usando pruebas locales". El padre elige el especialista segun el
+resultado y resuelve consultas/documentacion menores directamente.
+Los hijos no delegan entre si; no se requiere cambiar manualmente de agente.
 
 ```text
 Usuario -> ITAD Coordinador (padre)
@@ -835,10 +877,17 @@ Usuario -> ITAD Coordinador (padre)
 Ejemplos de tareas para el padre:
 
 - "Corrige los avisos duplicados": asigna la correccion a Implementacion.
-- "Comprueba las pruebas de deduplicacion": selecciona QA.
-- "Prepara el despliegue HTTPS": selecciona Despliegue.
+- "Comprueba los limites Rich y la compatibilidad de texto": selecciona QA.
+- "Corrige las marcas de Coleccion en bundles": asigna Implementacion.
+- "Prepara la actualizacion del Worker sin publicarla": selecciona Despliegue.
+- "Aclara que se consulta cada cinco minutos": lo resuelve el Coordinador.
 
-En tareas mixtas, coordina las dependencias y devuelve un resultado conjunto.
+En tareas mixtas, el padre asigna objetivos, archivos exclusivos, dependencias,
+criterios, comandos existentes y permisos; paraleliza solo encargos independientes.
+QA valida una version estable y devuelve defectos reproducibles al padre.
+No se repiten exploraciones o suites por rutina.
+Ningun encargo local autoriza OAuth/refresh reales, mensajes, lecturas remotas
+operativas, migraciones ni despliegues; requieren permiso especifico.
 
 Definiciones:
 
@@ -847,14 +896,27 @@ Definiciones:
 - [ITAD QA](.github/agents/itad-qa.agent.md)
 - [ITAD Despliegue](.github/agents/itad-despliegue.agent.md)
 
-Si no aparecen tras crear los archivos, volver a abrir el selector o recargar
-la ventana de VS Code. La disponibilidad de delegacion depende del entorno;
-tambien se pueden seleccionar los especialistas manualmente.
+Si no aparecen o conservan instrucciones antiguas, volver a abrir el selector
+o recargar la ventana de VS Code. Verificar descubrimiento en el harness activo;
+un YAML valido no demuestra invocacion. Si hay nombres duplicados, revisar las
+fuentes en las personalizaciones de VS Code antes de cambiar archivos; no editar
+caches sincronizadas ni suponer que son definiciones distintas.
+Los especialistas siguen seleccionables manualmente como alternativa.
 
 El coordinador usa las herramientas predeterminadas del entorno para poder
 consultar al usuario y delegar. Los especialistas tienen herramientas limitadas
 a su trabajo; QA puede ejecutar pruebas, pero no dispone de herramientas de
-edicion. Esa restriccion de rol no es un aislamiento de seguridad del terminal.
+edicion. Esa restriccion de rol no es un aislamiento de seguridad del terminal
+ni garantiza ausencia de red/escrituras.
+`agents` y `argument-hint` son configuracion de VS Code Local; su soporte no
+se debe asumir en Copilot. Las instrucciones tambien expresan los limites
+de delegacion. No se fijan modelos ni esfuerzo por defecto.
+
+Los agentes ITAD viven solo en el repositorio. Un agente personal React/MVVM
+no es parte del bot y no debe elegirse para este Worker sin frontend.
+Fuentes de estructura y compatibilidad:
+[agentes de VS Code](https://code.visualstudio.com/docs/agent-customization/custom-agents)
+y [referencia de archivos](https://code.visualstudio.com/docs/agents/reference/custom-agent-file-reference).
 
 ## Orden de trabajo
 

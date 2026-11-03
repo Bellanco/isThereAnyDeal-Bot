@@ -759,3 +759,138 @@ Pendiente: aceptación/render/descarga por Telegram y datos reales de Colección
 Sin full suite, integración D1/cron Wrangler ni comprobación cloud. Sin lectura
 de secretos/config privada, OAuth, estado persistente real, envíos, descarga de
 assets ni deploy. Red usada exclusivamente para documentación pública.
+
+## Fidelidad de las tres muestras — 2026-11-03 local
+
+### Fuentes y resultado del contraste
+
+Se revisó la maqueta histórica `telegram-preview-v4.html`, sin sobrescribirla.
+La evidencia confirma **tres** muestras ficticias: un juego/una tienda,
+un juego/dos tiendas y un bundle con tres niveles/cinco juegos. No se
+confunden con las **dos** tarjetas de documentación de
+`scripts/telegram-preview-oficial.mjs`.
+Fuente de contenido actual: `buildExamples` en `scripts/telegram-preview.mjs`,
+validadores reales y `formatNotification`/`formatBundle`. Transporte de
+referencia: `TelegramClient.sendRich`, sin cambios en `src/`.
+
+Documentación pública Telegram consultada el 03-11-2026:
+
+- [sendRichMessage](https://core.telegram.org/bots/api#sendrichmessage) recibe
+  `rich_message` y devuelve `Message`.
+- [InputRichMessage](https://core.telegram.org/bots/api#inputrichmessage):
+  exactamente una representación `html`/`markdown`/`blocks`;
+  `skip_entity_detection` omite detección automática.
+- [Rich HTML](https://core.telegram.org/bots/api#rich-html-style):
+  admite títulos, `p`, `mark`, `code`, `footer`, `hr`, imágenes como bloques
+  independientes y `tg-button-row`/`tg-button`. No es HTML/CSS de navegador.
+- [RichMessageButton](https://core.telegram.org/bots/api#richmessagebutton):
+  URL y estilos `success`/`primary`; las apps pueden usar colores del tema.
+
+Para aproximar estilos se consultó el cliente **nativo** público Desktop,
+commit [`a8de5f928ba68197195e6e752293af39d4db8e6c`](https://github.com/telegramdesktop/tdesktop/tree/a8de5f928ba68197195e6e752293af39d4db8e6c):
+
+- [`iv.style`, 1102–1174](https://github.com/telegramdesktop/tdesktop/blob/a8de5f928ba68197195e6e752293af39d4db8e6c/Telegram/SourceFiles/iv/iv.style#L1102-L1174):
+  `messageMarkdown` tiene cuerpo 13, h3 17/24, h4 16/23, footer 12/19;
+  skips de párrafo 4, título 10 y fila 8 (unidades lógicas del cliente).
+- [`iv.style`, 956–984](https://github.com/telegramdesktop/tdesktop/blob/a8de5f928ba68197195e6e752293af39d4db8e6c/Telegram/SourceFiles/iv/iv.style#L956-L984)
+  y [`iv_markdown_button_row.cpp`, 263–267](https://github.com/telegramdesktop/tdesktop/blob/a8de5f928ba68197195e6e752293af39d4db8e6c/Telegram/SourceFiles/iv/markdown/iv_markdown_button_row.cpp#L263-L267):
+  `success` usa color verde del tema y fondo tintado con opacidad 0,12,
+  no necesariamente verde sólido con texto blanco.
+- [Filas, 563–618](https://github.com/telegramdesktop/tdesktop/blob/a8de5f928ba68197195e6e752293af39d4db8e6c/Telegram/SourceFiles/iv/markdown/iv_markdown_button_row.cpp#L563-L618):
+  sin `align`, se distribuye el ancho. Se mantiene cada botón en su fila.
+- [`messageMarkdown`, 1344–1363](https://github.com/telegramdesktop/tdesktop/blob/a8de5f928ba68197195e6e752293af39d4db8e6c/Telegram/SourceFiles/iv/iv.style#L1344-L1363):
+  mark hereda el tema, con tinte; no hay chip con tipografía propia enviado.
+
+Se examinó también `Telegram/Resources/export_rich/css/rich_message.css`.
+Es CSS de **exportación HTML**, con medidas distintas; no se tomó como prueba
+del render del chat. No se copió el motor ni su hoja de estilos: el helper
+local expresa solo una aproximación de las observaciones anteriores.
+
+### Diferencias corregidas y límites
+
+- Se eliminó la sustitución manual de `img` por `div` con título/pie dentro
+  del artículo. Ahora cada artículo contiene literalmente HTML actual,
+  con imágenes originales bloqueadas por CSP. Solo se dibuja un marco
+  ilustrativo 600:280 (puede mostrar el icono de imagen bloqueada del navegador);
+  no garantiza recorte, altura ni proporción Telegram, especialmente del bundle.
+  El banner del bundle sigue siendo de Nebula Drifters, no una portada.
+- Se redujeron títulos, relleno y separaciones exagerados. `mark` no añade
+  padding/tamaño/peso propios. Compra usa tinte verde, ITAD primary del tema.
+  Se quitó la regla contextual `p:has(a)+p` del preview oficial, que alteraba
+  arbitrariamente párrafos tras enlaces. Ambos previews usan un helper mínimo.
+- No se movió ni añadió ningún bloque: precio/descuento juntos, tienda en
+  compra, cupón, footer y enlaces siguen en el orden del formatter. Se
+  conservaron dos tiendas, los tres niveles/cinco juegos y ambas marcas.
+- El control de banners muestra literalmente `stripImages`, comprobado igual
+  al formatter sin assets. Ante 400 con imagen, el transporte simulado
+  produjo exactamente ese segundo payload; no se cambió el fallback real.
+- Los botones Rich no son botones nativos del navegador: el adaptador local
+  solo añade `role`/`tabindex` al DOM y permite inspeccionar la URL en un
+  `output` **fuera del artículo**, mediante click, Enter o Espacio.
+  Los enlaces también inspeccionan sin navegación; no se reescriben URLs.
+- Se corrigió texto desactualizado del preview oficial sobre caducidad:
+  el formatter muestra día/mes, no hora/año.
+
+**Exacto:** HTML fuente del formatter y JSON del transporte simulado
+`{chat_id, rich_message:{html, skip_entity_detection:true}}`, sin CSS,
+comentarios de QA ni elementos de UI dentro del payload.
+**Equivalente:** árbol semántico de bloques/textos/atributos/enlaces; las
+únicas adiciones DOM son accesibilidad local en `tg-button`.
+**Aproximado:** estilos observados en Desktop trasladados a CSS; fuentes,
+colores, escala/DPI, radios, márgenes entre bloques, ancho de burbuja y
+adaptación de Android/iOS/Web no están verificados. La referencia es un commit
+público, no prueba de versión instalada ni de todos los clientes.
+No se promete pixel-perfect, aceptación ni entrega/render real Telegram.
+
+### Artefactos, comandos y QA reproducible
+
+Nueva maqueta:
+`C:\Users\bella\.copilot\session-state\ddc74007-85c8-4cf3-89b9-cb640ffb991a\files\telegram-preview-fiel.html`.
+Preview oficial alineado, sin sobrescribir el anterior:
+`C:\Users\bella\.copilot\session-state\ddc74007-85c8-4cf3-89b9-cb640ffb991a\files\telegram-preview-oficial-fiel.html`.
+Capturas **del navegador local, no Telegram**, en esa carpeta:
+`preview-390-dark.png` y `preview-1280-light.png`; revisadas visualmente.
+
+```powershell
+node scripts/telegram-preview-fiel.mjs --output 'C:\Users\bella\.copilot\session-state\ddc74007-85c8-4cf3-89b9-cb640ffb991a\files\telegram-preview-fiel.html'
+node scripts/telegram-preview-oficial.mjs --output 'C:\Users\bella\.copilot\session-state\ddc74007-85c8-4cf3-89b9-cb640ffb991a\files\telegram-preview-oficial-fiel.html'
+$env:PREVIEW_BROWSER_PATH='C:\Program Files\Google\Chrome\Application\chrome.exe'
+npm test -- tests/telegram-preview.test.mjs tests/official-preview.test.mjs tests/telegram-preview-browser.test.mjs tests/rich.test.ts tests/telegram.test.ts tests/notifications.test.ts tests/bundles.test.ts
+$env:PREVIEW_BROWSER_PATH='C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe'
+npm test -- tests/telegram-preview-browser.test.mjs
+Remove-Item Env:PREVIEW_BROWSER_PATH
+```
+
+Resultados: generadores **exit 0**; selector combinado **238 pruebas /
+7 archivos aprobados**; repetición navegador Edge **1/1 aprobada**.
+`git diff --check` y `node --check` de los tres scripts visuales: **exit 0**.
+Baseline anterior a cambios: **36/36** (previews de texto/oficial).
+La prueba de navegador es opt-in: sin `PREVIEW_BROWSER_PATH` se omite, no
+instala herramientas. Usa perfil temporal vacío y CDP local, sin servidor.
+Se probaron ambos previews a **320/390/414/1280 px**, temas claro/oscuro,
+con/sin banners en las tres muestras: **24 combinaciones por navegador**.
+Árbol semántico completo igual, sin overflow horizontal ni botones cortados,
+filas completas/separadas, mark inline y footer sin negrita. Checkbox y
+disclosures responden; botones/enlaces conservan la URL y no navegan.
+Se verificaron los JSON completos de las tres muestras y los seis intentos
+de fallback 400. Las pruebas existentes cubren conservación, agrupación,
+Unicode/afiliados, límites exactos UTF-8/bloques/imágenes y multipartes.
+
+Métricas inalteradas: con banner **508/796/1204 bytes**, **8/14/23 bloques**,
+una imagen/parte cada muestra; sin banner **428/717/1139 bytes**,
+**7/13/22 bloques**. Preview oficial: **381/846 bytes**, una parte cada tarjeta.
+
+Durante el desarrollo, el arnés confundió eventos Chromium
+`requestWillBeSent` con tráfico real: se emiten también para imágenes
+bloqueadas. Después, `Network.setBlockedURLs` anticipaba el rechazo como
+`inspector`. Se sustituyó por interceptación preventiva antes de red y se
+comprobó la CSP **independientemente**: intentos de imagen con
+`blockedReason=csp`, cero respuestas HTTP(S) y cero solicitudes que alcanzan
+la interceptación. La comparación de HTML usa `template` inerte.
+No se relajó la CSP ni se descargaron assets para hacer pasar la prueba.
+
+No hubo cambios TypeScript, por lo que no se ejecutó typecheck. Tampoco suite
+completa, build, D1/cron, cloud, configuración privada, secretos, OAuth,
+mensajes ni deploy. Temporales propios/perfiles eliminados y navegadores
+cerrados por su proceso; no quedan servidores de QA. Se preservaron cambios
+previos del worktree y las maquetas históricas.

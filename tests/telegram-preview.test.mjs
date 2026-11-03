@@ -7,6 +7,8 @@ import {
   BANNER, SECOND_BANNER, BUNDLE_GAME_BANNER, CONFIRMATION, buildExamples, compilePreviewRuntime, deliverExamples,
   parseArguments, readHidden, runPreview,
 } from '../scripts/telegram-preview.mjs';
+import { buildFaithfulPreview } from '../scripts/telegram-preview-fiel.mjs';
+import { PREVIEW_CSS, DESKTOP_COMMIT } from '../scripts/telegram-preview-template.mjs';
 
 const TOKEN = `12345:${'fictitious_preview_only_'.repeat(2)}`;
 const CHAT = '123456';
@@ -34,6 +36,70 @@ function delivery(extra = {}) {
 }
 
 describe('Telegram preview, compiled real formatters and client', () => {
+  it('faithful page embeds all three formatter outputs and exact image fallback, no rewritten articles', async () => {
+    const formatted = [];
+    const recording = {
+      ...runtime,
+      formatNotification: (...args) => {
+        const parts = runtime.formatNotification(...args);
+        formatted.push(parts);
+        return parts;
+      },
+      formatBundle: (...args) => {
+        const parts = runtime.formatBundle(...args);
+        formatted.push(parts);
+        return parts;
+      },
+    };
+    const { html, groups, fallback, metrics } = buildFaithfulPreview(recording);
+    expect(groups).toEqual(formatted.slice(0, 3).flat());
+    expect(fallback).toEqual(formatted.slice(3).flat());
+    const articles = [...html.matchAll(/<article class="rich-card">([\s\S]*?)<\/article>/g)].map(m => m[1]);
+    expect(articles).toEqual(groups.flatMap((part, i) => [part, fallback[i]]));
+    expect(articles).toHaveLength(6);
+    expect(html).not.toMatch(/banner-placeholder|<div[^>]*role="img"|:has\(a\)|fetch\(|window\.open|@import/);
+    expect(html).toContain(PREVIEW_CSS);
+    expect(PREVIEW_CSS).toContain('aspect-ratio:600/280;visibility:hidden');
+    expect(PREVIEW_CSS).toContain('content:"Banner de ejemplo"');
+    expect(html).toContain('placeholder neutro');
+    expect(html).toContain(DESKTOP_COMMIT);
+    expect(html).toContain("img-src 'none'");
+    expect(html).toContain("connect-src 'none'");
+    expect(html).toContain('no aviso oficial de bundles');
+    expect(metrics).toEqual([
+      { bytes: 508, blocks: 8, images: 1 },
+      { bytes: 796, blocks: 14, images: 1 },
+      { bytes: 1204, blocks: 23, images: 1 },
+    ]);
+    for (const part of groups) {
+      expect(runtime.utf8Length(part)).toBeLessThanOrEqual(runtime.RICH_BUDGET.bytes);
+      expect(runtime.countBlocks(part)).toBeLessThanOrEqual(runtime.RICH_BUDGET.blocks);
+      expect(runtime.countImages(part)).toBeLessThanOrEqual(runtime.RICH_BUDGET.images);
+    }
+    const requests = [];
+    const sent = delivery({ transport: async request => {
+      requests.push({ method: request.method, path: new URL(request.url).pathname.split('/').at(-1),
+        body: await request.json() });
+      return Response.json({ ok: true, result: { message_id: requests.length, chat: { id: Number(CHAT), type: 'private' } } });
+    } });
+    expect(await deliverExamples(runtime, groups, sent)).toBe(3);
+    expect(requests).toEqual(groups.map(part => ({
+      method: 'POST', path: 'sendRichMessage',
+      body: { chat_id: Number(CHAT), rich_message: { html: part, skip_entity_detection: true } },
+    })));
+    const attempts = [];
+    const client = new runtime.TelegramClient(async request => {
+      attempts.push(await request.json());
+      return attempts.length % 2
+        ? Response.json({ ok: false, error_code: 400 }, { status: 400 })
+        : Response.json({ ok: true, result: { message_id: attempts.length, chat: { id: Number(CHAT), type: 'private' } } });
+    }, TOKEN, Number(CHAT));
+    for (const part of groups) await client.sendRich(part);
+    expect(attempts).toEqual(groups.flatMap((part, i) => [part, fallback[i]].map(value => ({
+      chat_id: Number(CHAT), rich_message: { html: value, skip_entity_detection: true },
+    }))));
+  });
+
   it.each([[], ['--live', '--dry-run'], ['--dry-run', '--dry-run'],
     ['--live', '--token', TOKEN], ['--live', '--chat-id', CHAT], ['--live', '--config', 'private'],
     ['--dry-run', '--no-banner', '--no-banner'], ['--live', '--token=private']].map(args => ({ args })))(

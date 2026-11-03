@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compilePreviewRuntime } from './telegram-preview.mjs';
+import { PREVIEW_CSP, PREVIEW_CSS, PREVIEW_UI, previewLimits, previewSources } from './telegram-preview-template.mjs';
 
 export const COMMIT = '7be4a2c68faad323ba770bfd32e1d4dc4f9c7c3f';
 export const SPEC_SHA256 = '0d128cd045bf2fd6c7db5b879ebcbe622266180563967076ce294f578ca07841';
@@ -50,24 +51,17 @@ export function buildOfficialPreview(runtime, spec) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">
 <title>Telegram · Ejemplos públicos oficiales ITAD</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#111b26;color:#e8eef5;font:15px/1.5 system-ui,sans-serif}
-main{width:min(100%,390px);margin:auto;padding:18px 12px 36px}h1{font-size:22px;line-height:1.25}h2{font-size:18px;margin-top:28px}
-.scope,.provenance{color:#b8c9d9;font-size:13px}.scope{padding:12px;border:1px solid #466075;border-radius:12px;background:#182939}
-a{color:#83caff;overflow-wrap:anywhere}.rich-card{background:#22364a;border-radius:16px;padding:18px 16px;margin:14px 0;box-shadow:0 3px 12px #0003;overflow-wrap:anywhere}
-.rich-card h3{font-size:21px;line-height:1.25;margin:0 0 16px}.rich-card h4{font-size:19px;margin:18px 0 8px}.rich-card p{margin:8px 0}.rich-card p:has(a)+p{font-size:13px;color:#c0d5e5}
-mark{background:#a8d8a9;color:#123921;border-radius:5px;padding:2px 5px;font-size:14px}hr{border:0;border-top:1px solid #476078;margin:20px 0}
-tg-button-row{display:block;margin-top:9px}tg-button{display:block;border-radius:9px;padding:12px 10px;text-align:center;font-weight:650;line-height:1.3}
-tg-button[style="success"]{background:#2d7655;color:#fff}tg-button[style="primary"]{background:#2866a0;color:#fff}
-details{margin:14px 0;font-size:13px}summary{cursor:pointer;color:#83caff}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#172634;padding:10px;border-radius:8px;font-size:11px}
-code{overflow-wrap:anywhere}.rich-card footer{color:#b8c9d9;font-size:12px;font-weight:400;margin:8px 0}li{margin:8px 0}
+${PREVIEW_CSS}
 </style>
 </head>
 <body><main>
 <h1>Ejemplos públicos oficiales ITAD</h1>
-<div class="scope">Datos de documentación, históricos de 2024; no son precios actuales, respuestas de tu cuenta ni una prueba de entrega. Aproximación móvil de 390 px: Telegram adapta colores y tipografía a tu tema. El footer se representa menor y secundario solo en esta maqueta; la documentación no garantiza tamaño ni color exactos. Sin red ni assets externos; los botones Rich aquí son solo visuales. No se envía nada.</div>
+<div class="scope">Datos de documentación, históricos de 2024; no son precios actuales ni respuestas de tu cuenta. ${previewLimits}</div>
+${previewSources}
+<output id="link-inspection" aria-live="polite">Botones y enlaces: inspección local sin navegación.</output>
 <h2>1 · Aviso Waitlist oficial</h2>
 <p class="provenance">Fuente: <a href="${source('docs/routes/notifications/examples/resp.notifications.waitlist.get.v1.yaml')}#L1-L73">detalle oficial, líneas 1–73</a>, vía <a href="https://docs.isthereanydeal.com/#operation/notifications-waitlist-v1-get">/notifications/waitlist/v1</a>. El formatter v4 recibe el objeto completo, no una envoltura inventada del webhook.</p>
 ${cards(groups[0])}
@@ -86,7 +80,7 @@ ${payload('Lista oficial: solo metadatos, no más tarjetas inventadas', examples
 ${cards(groups[1])}
 <div class="provenance">
 <ul>
-<li>87.96 USD → 87,96 US$; no se convierte a EUR aunque el cliente tenga country=ES. Caducidad oficial ${esc(bundle.expiry)} → 00:59 22-03-2024, Europe/Madrid. El formatter omite los segundos; el original permanece íntegro debajo.</li>
+<li>87.96 USD → 87,96 US$; no se convierte a EUR aunque el cliente tenga country=ES. Caducidad oficial ${esc(bundle.expiry)} → Hasta el 22 de marzo, Europe/Madrid. El formatter omite hora y año; el original permanece íntegro debajo.</li>
 <li>La nota de relanzamiento se conserva literalmente en el payload oficial debajo, pero ninguna nota ITAD se dibuja en la tarjeta. La publicación es ${esc(bundle.publish)}; los assets del ejemplo tienen parámetros t de fechas posteriores a su caducidad. No se actualiza ni se “repara” esa muestra histórica.</li>
 <li>No hay consulta de Waitlist/Colección, ni membresía real o simulada: waitlist=[] y collection=[] son entradas locales para representar el contrato sin marcas. No prueba elegibilidad: el flujo real solo notifica bundles seleccionados por cruce.</li>
 <li>Se mantienen los cuatro juegos, el nivel y todos los enlaces de compra/ITAD. Caducidad en bloque footer nativo: Hasta con fecha sin negrita. La maqueta oficial usa stripImages (fallback real sin banner) para no cargar assets externos. El formatter local selecciona un banner per-game; no una portada propia de bundle. counts y assets íntegros quedan en el original.</li>
@@ -103,7 +97,7 @@ ${payload('Payload oficial íntegro del feed (sin editar)', examples['resp.bundl
 <p>Equivalencia: cada article contiene literalmente una parte devuelta por los formatters reales actuales, sin añadir campos ni estilos HTML al payload. Sin despliegue, cuenta, OAuth, envío real ni comprobación cloud. Validación local no garantiza cero fallos ni entrega exactamente una vez.</p>
 </div>
 ${groups.map((parts, index) => payload(`HTML Rich exacto · tarjeta ${index + 1}`, parts)).join('\n')}
-</main></body></html>
+<script>${PREVIEW_UI}</script></main></body></html>
 `;
   return { html, groups };
 }
