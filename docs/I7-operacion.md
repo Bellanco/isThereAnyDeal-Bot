@@ -1,18 +1,26 @@
 # Operación — despliegues Rich/bundles y estado actual
 
-**Última operación (2026-11-02):** intento autorizado de publicar Workers Logs
+**Último deploy (2026-11-03):** ajustes Rich de bundles publicados en el Worker
+existente; versión `272da3c6-6e39-4c09-ac42-a300de85a141` al **100 %**,
+creada `2026-11-03T20:52:38.280082Z`; deployment
+`89d005e2-df9f-4318-8125-17db479d34c2`, `2026-11-03T20:52:39.546785Z`.
+Status/list coinciden, cron `* * * * *`; metadata de bindings/runtime igual
+a la versión anterior. Sin tick, render ni entrega real verificados.
+[Evidencia completa](#22-publicacion-autorizada-de-ajustes-rich-bundles--2026-11-03).
+
+**Intento histórico (2026-11-02):** intento autorizado de publicar Workers Logs
 detenido por fallo del dry-run, antes de cualquier deploy. Sin nueva versión,
 reintento ni rollback; observability solo confirmado en configuración local.
 [Comprobaciones y fallo](#21-intento-autorizado-de-publicar-observability--2026-11-02).
 
-**Actual (2026-11-02):** corrección de Unicode mal formado en `safeImageUrl`
+**Anterior (2026-11-02):** corrección de Unicode mal formado en `safeImageUrl`
 publicada en `cfcd14fb-0843-4481-8217-d8484b138e63` al **100 %**,
 versión creada `2026-11-02T22:38:34.406885Z`, deployment
 `2026-11-02T22:38:35.842788Z`. Status/list coinciden; cron `* * * * *`
 confirmado por salida de triggers, `LIVE_DELIVERY=enabled` y metadata de
 bindings/runtime sin cambios frente a `613fede8-8bc1-4967-bed8-ffcbb3dc9fbd`.
-No se forzó ni observó tick, render, entrega o lectura de Colección en esta
-operación. [Evidencias y límites actuales](#20-reautorizacion-del-usuario-y-revision-de-cierre--2026-11-02).
+No se forzó ni observó tick, render, entrega o lectura de Colección en esa
+operación. [Evidencias y límites históricos](#20-reautorizacion-del-usuario-y-revision-de-cierre--2026-11-02).
 
 **Antecedente (2026-11-01 11:46:48.755025 UTC):** reglas finales Rich desplegadas,
 versión `a5249f58-4e5a-4c78-9df8-1aa26b73c7a6` al **100%**, mensaje
@@ -1328,3 +1336,64 @@ exit 0, trigger `* * * * *`. `deployments status --json` confirma la versión
 activados y trazas desactivadas. No se comprobó por separado la ingesta en el panel.
 Sin cambios de secretos, OAuth, migraciones o cola, sin mensajes manuales,
 rollback ni commit/push.
+
+## 22. Publicación autorizada de ajustes Rich bundles — 2026-11-03
+
+El usuario autorizó comprobar y publicar el checkout validado en el Worker
+existente. Se revisó el diff completo antes de actuar: había **8 archivos
+modificados**, uno más que los 7 indicados inicialmente por la petición; el
+octavo (`docs/ejemplos-oficiales-preview.md`) documenta las mismas mediciones
+y expectativas del cambio visual. No se encontraron cambios ajenos al ajuste,
+y no se descartó ni sobrescribió ninguno.
+
+Cambios publicados en `src/bundles.ts`: se elimina el pie decorativo con el
+título del juego del banner y se añade `<hr/>` entre bloques de juegos,
+incluidas continuaciones dentro de un tier. Pruebas y documentación de preview
+actualizadas; los juegos, marcas, enlaces y límites de división se conservan.
+
+### Comprobaciones y despliegue
+
+Comandos desde la raíz en PowerShell:
+
+```powershell
+git diff --check
+git diff --cached --check
+npm run check:prod -- --config .\wrangler.production.local.jsonc --activate
+npm test -- --no-file-parallelism
+npm run typecheck
+# $tmp: directorio temporal exclusivo, eliminado en finally y comprobado ausente.
+node .\node_modules\wrangler\bin\wrangler.js deploy --dry-run --config .\wrangler.production.local.jsonc --autoconfig=false --outdir $tmp
+node .\node_modules\wrangler\bin\wrangler.js deploy --config .\wrangler.production.local.jsonc --autoconfig=false --message "Deploy approved bundle Rich formatting adjustments"
+node .\node_modules\wrangler\bin\wrangler.js deployments status --config .\wrangler.production.local.jsonc --json
+node .\node_modules\wrangler\bin\wrangler.js deployments list --config .\wrangler.production.local.jsonc --json
+node .\node_modules\wrangler\bin\wrangler.js versions view 272da3c6-6e39-4c09-ac42-a300de85a141 --config .\wrangler.production.local.jsonc --json
+```
+
+Resultados observados:
+
+| Comprobación | Resultado |
+| --- | --- |
+| `git diff --check`, `git diff --cached --check` | Exit 0 antes del deploy |
+| `check:prod --activate` | Exit 0, `production_config_valid_offline_only`; no es validación remota |
+| Suite completa | **735/735 tests, 19 archivos**, exit 0 |
+| `npm run typecheck` | Exit 0 |
+| Dry-run | Exit 0; Wrangler 4.153.0; **139.60 KiB / gzip 32.14 KiB** |
+| Temporal y configuración | Temporal exclusivo eliminado; hash de `wrangler.production.local.jsonc` intacto |
+| Deploy | Exit 0; startup 3 ms; triggers `schedule: * * * * *` |
+| Versión activa | `272da3c6-6e39-4c09-ac42-a300de85a141`, **100 %** |
+| Creación de versión | `2026-11-03T20:52:38.280082Z` |
+| Deployment | `89d005e2-df9f-4318-8125-17db479d34c2`, `2026-11-03T20:52:39.546785Z` |
+| Status y listado | Coinciden con el deployment más reciente y su versión al 100 % |
+| Configuración/cron | Worker `itad-telegram-bot`, `LIVE_DELIVERY=enabled`, superficie `workers_dev`/preview desactivada; cron `* * * * *`. Salida de triggers y metadata de bindings/runtime confirman los valores conservados |
+
+La comparación de metadata de bindings/runtime con la versión anterior
+`aff935c5-b085-49e2-975d-8691e328490f` dio igualdad; no se imprimieron valores
+privados. No se leyeron valores de secretos ni se cambió la configuración local,
+D1, migraciones, OAuth, colas, preferencias de correo o recursos. Sin commit/push,
+rollback, tick forzado, petición de prueba o mensaje enviado. No se crearon
+recursos ni se midió coste; el consumo del Worker/D1 existente depende del plan.
+
+La publicación **no acredita** render móvil, entrega a Telegram, oferta real,
+salud de OAuth, ni el comportamiento de Waitlist con el correo desactivado.
+Esas comprobaciones siguen pendientes y requieren autorización/acción manual
+separada; no se debe desactivar Waitlist para hacerlas.

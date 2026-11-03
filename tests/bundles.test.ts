@@ -64,7 +64,7 @@ describe('bundle message', () => {
       `<tg-button-row><tg-button type="url" style="primary" url="${ITAD_PAGE}">Ver en ITAD</tg-button></tg-button-row>` +
       `<hr/><h4>Nivel 1 · ${PRICE}</h4>` +
       `<p><a href="${link(1)}">Game 1</a></p><p><mark>En tu lista de deseos</mark> · <mark>En tu Colección</mark></p>` +
-      `<p><a href="${link(2)}">Game 2</a></p><p><mark>En tu Colección</mark></p>`,
+      `<hr/><p><a href="${link(2)}">Game 2</a></p><p><mark>En tu Colección</mark></p>`,
     );
     checkParts([html]);
   });
@@ -90,7 +90,7 @@ describe('bundle message', () => {
       const before = structuredClone(input);
       const parts = formatBundle(input);
       expect(parts[0]).toContain(`<img src="${banner(3).replaceAll('&', '&amp;')}"/>`);
-      expect(parts[0]).toContain('<footer>Imagen de juego: A &amp; &lt;B&gt;</footer>');
+      expect(parts[0]).not.toContain('Imagen de juego:');
       expect(countImages(parts.join(''))).toBe(1);
       const noAssets = structuredClone(input);
       noAssets.bundle.tiers.forEach(t => t.games.forEach(g => { delete g.banner; }));
@@ -177,8 +177,7 @@ describe('bundle message', () => {
         bundle({ tiers: [tier([game(1, { id: gid(1).toUpperCase() }), game(2)])] }),
         [gid(1)], [gid(2).toUpperCase()],
       )));
-      expect(html).toContain(`<p><a href="${link(1)}">Game 1</a></p><p><mark>En tu lista de deseos</mark></p>`);
-      expect(html).toContain(`<p><a href="${link(2)}">Game 2</a></p><p><mark>En tu Colección</mark></p>`);
+      expect(html).toContain(`<p><a href="${link(1)}">Game 1</a></p><p><mark>En tu lista de deseos</mark></p><hr/><p><a href="${link(2)}">Game 2</a></p><p><mark>En tu Colección</mark></p>`);
     });
   });
 
@@ -336,8 +335,8 @@ describe('bundle message', () => {
       const titles = [...parts.join('').matchAll(/>Game (\d+)<\/a>/g)].map(match => Number(match[1]));
       expect(titles).toEqual(Array.from({ length: 900 }, (_, index) => index + 1));
       expect(parts.join('').match(/<p><mark>En tu lista de deseos<\/mark><\/p>/g)).toHaveLength(2);
-      expect(parts.join('')).toContain(`<p><a href="${link(5)}">Game 5</a></p><p><mark>En tu lista de deseos</mark></p>`);
-      expect(parts.join('')).toContain(`<p><a href="${link(700)}">Game 700</a></p><p><mark>En tu lista de deseos</mark></p>`);
+      expect(parts.join('')).toContain(`<p><a href="${link(5)}">Game 5</a></p><p><mark>En tu lista de deseos</mark></p><hr/><p><a href="${link(6)}">Game 6</a></p>`);
+      expect(parts.join('')).toContain(`<p><a href="${link(700)}">Game 700</a></p><p><mark>En tu lista de deseos</mark></p><hr/><p><a href="${link(701)}">Game 701</a></p>`);
     });
 
     it('keeps every tier heading with its first game when several tiers are split', () => {

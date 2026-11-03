@@ -130,7 +130,7 @@ describe('pinned official ITAD examples (public OpenAPI 2.11.0)', () => {
     expect(buttonUrls([html])).toEqual([raw.url, raw.details]);
     expect(html).not.toMatch(/en tu |publicado|<p>dlc|counts/);
     expect(html).toContain(`<img src="${raw.tiers[0]!.games[0]!.assets.banner600}"/>`);
-    expect(html).toContain('<footer>Imagen de juego: RimWorld</footer>');
+    expect(html).not.toContain('Imagen de juego:');
     expect(html).toContain('</tg-button></tg-button-row><tg-button-row><tg-button type="url" style="primary"');
   });
 

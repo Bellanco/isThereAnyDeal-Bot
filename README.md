@@ -8,7 +8,19 @@ fixtures contrastados con OpenAPI 2.11.0, sin cuenta ni envíos reales.
 Aclara la errata documental del feed: `/bundles/v1`, no `/bundles/v2`;
 el cliente ya usa la ruta correcta. No altera el historial de despliegue.
 
-## Estado actual: corrección Unicode y Workers Logs publicados
+## Estado actual: ajustes de presentación Rich publicados — 2026-11-03
+
+Publicación autorizada en el Worker existente `itad-telegram-bot` con la
+configuración local de producción. Versión **`272da3c6-6e39-4c09-ac42-a300de85a141`
+al 100 %**, creada `2026-11-03T20:52:38.280082Z`; deployment
+`89d005e2-df9f-4318-8125-17db479d34c2` (`2026-11-03T20:52:39.546785Z`).
+Incluye quitar el pie decorativo del banner y separar visualmente los juegos
+bundle. `npm test` (735/735), typecheck, check offline y dry-run aprobados;
+status/list coinciden. El cron `* * * * *` y metadata de bindings/runtime se
+conservaron. No se comprobó render ni entrega real.
+[Evidencias operativas](docs/I7-operacion.md#22-publicacion-autorizada-de-ajustes-rich-bundles--2026-11-03).
+
+Las entradas fechadas anteriormente a continuación son antecedentes operativos.
 
 **Publicación autorizada de observability — 2026-11-02: completada.**
 Tras «Sube el código», se revisaron estado/diff y configuración activa local:
@@ -70,11 +82,12 @@ primer juego con banner seguro que pertenece a Waitlist, en orden de
 tiers/juegos; si ningún juego de Waitlist tiene banner seguro → sin imagen
 (sin recurrir a otros juegos del bundle).
 Assets oficiales per-game `banner600 → banner400 → banner300 → banner145`,
-sin construir URLs ni inventar portada del bundle. Etiqueta «Imagen de juego»
-con título explícito. No se filtra ni cambia ningún juego/nivel/enlace.
+sin construir URLs ni inventar portada del bundle. El banner no lleva una
+etiqueta de título. No se filtra ni cambia ningún juego/nivel/enlace.
 El mejor banner opcional se guarda en el modelo/snapshot JSON; planes antiguos
 sin assets siguen válidos y no se reescriben. Fallback 400 existente elimina
-imagen y su etiqueta, manteniendo el contenido.
+la imagen, manteniendo el contenido. La eliminación del pie y la separación visual entre juegos se publicaron el
+2026-11-03; véase el estado y las limitaciones operativas arriba.
 [Evidencias, maqueta v4 y diagnóstico de Colección limitado a logs](docs/ejemplos-oficiales-preview.md#banner-per-game-autorizado--2026-11-02-local-no-desplegado).
 
 Seguimiento de esta petición (2026-11-02): ejemplo ficticio 2 con **un juego y
@@ -176,7 +189,8 @@ ejecutado en I7” describen fases históricas.
   feed con la Waitlist, no una reinterpretación de los avisos oficiales.
   Se preservan **todos los juegos y niveles**, caducidad y enlaces;
   `bundle.note` permanece en datos/validación/persistencia, no en las tarjetas.
-  marcas «en tu lista de deseos» y «en tu Colección». Cada juego enlaza a ITAD por su slug.
+  marcas «en tu lista de deseos» y «en tu Colección». Cada juego enlaza a ITAD por su slug;
+  los bloques de juegos se separan con una línea horizontal.
   Sin cabecera resumen ni pie con ID/publicación: de las fechas del bundle
   solo se muestra caducidad en footer nativo sin negrita, también en ofertas Waitlist.
 - `ITAD_API_KEY` es un secreto **opcional**; sin key, `bundles: off`.
@@ -227,8 +241,11 @@ omite la señal S (mínimo de tienda).
 
 En bundles cada juego enlazado ocupa su propia línea y las marcas de lista de
 deseos/Colección van en la siguiente cuando existan, sin repetir el tipo de juego.
-En el formatter local actual, Waitlist y Colección usan `<mark>`; el texto
-distingue las dos marcas. El mínimo histórico vuelve a texto simple.
+Una línea horizontal separa cada bloque de juego para que la marca no se confunda
+con el título siguiente. `<mark>` se usa para descuentos y, en el formatter local
+actual, también para las marcas de Waitlist y Colección; su ancho sigue el texto
+de la etiqueta, sin extenderse por la línea. El mínimo histórico vuelve a texto
+simple.
 Se preservan todos los juegos, niveles y enlaces. La decisión anterior de mostrar
 notas oficiales queda reemplazada explícitamente por el ajuste local aprobado:
 **ninguna nota ITAD se dibuja en Rich bundles**, sin filtrar por su texto.
@@ -244,7 +261,8 @@ Los colores verde/azul son dependientes del tema, no colores CSS enviados a
 Telegram. Fuente: [Rich HTML style](https://core.telegram.org/bots/api#rich-html-style)
 y [RichMessageButton](https://core.telegram.org/bots/api#richmessagebutton).
 La lista oficial consultada no enumera `<small>`: se usan `p`, títulos, `mark`
-solo para descuentos, `hr` y filas/botones Rich documentados. No se usa
+para descuentos y, en el formatter local, para las marcas de Waitlist/Colección,
+`hr` y filas/botones Rich documentados. No se usa
 `tg-time` porque mostraría fechas localizadas por Telegram.
 
 ### Historial: ajustes Rich incluidos en el deploy del 2026-11-01
@@ -300,12 +318,15 @@ no estilos CSS enviados a Telegram. Las fechas son texto fijo Madrid. No es
 captura ni prueba de render Telegram. Se conservan sin cambios los previews v2
 y v3. El generador visual fue temporal, no es un nuevo comando del proyecto.
 
-Medición local del formatter actual: ejemplos de una parte **508 / 796 / 1129
-bytes** y **8 / 14 / 20 bloques**, con imágenes **1 / 1 / 0**, usando
+Medición local del formatter en este checkout (cambios visuales aún no
+desplegados; no acredita render ni entrega reales): ejemplos de una parte
+**508 / 796 / 1204 bytes** y **8 / 14 / 23 bloques**, con imágenes **1 / 1 / 1**, usando
 `utf8Length` y `countBlocks` reales (incluyen footer).
-Sin banners: **428 / 717 / 1129 bytes**, **7 / 13 / 20 bloques**.
-Las cifras previas **21 / 20 bloques** omitían footers: para aquellos HTML
-eran **23 / 21**, no métricas del nuevo contenido. La muestra original de **595 juegos × 2 ofertas**
+Sin banners: **428 / 717 / 1139 bytes**, **7 / 13 / 22 bloques**.
+Las cifras anteriores del tercer ejemplo, **1194 / 21** con banner y
+**1129 / 20** sin banner, corresponden al formatter local previo a añadir los
+separadores `<hr/>` entre juegos; no son las métricas de este checkout.
+La muestra original de **595 juegos × 2 ofertas**
 da **17 partes** (antes 20), sin perder juegos, ofertas ni enlaces. La simulación
 ficticia usa esos mismos 595 juegos con/sin banners en los índices probados.
 No se cambian presupuestos, selección ITAD ni límites operativos.

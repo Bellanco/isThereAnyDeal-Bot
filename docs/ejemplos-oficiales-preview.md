@@ -682,20 +682,20 @@ usa como fixture **sin modificarlo** y sin descargar sus imágenes.
   Roundtrip probado con storage real de aplicación sobre SQLite **en memoria**.
   Ausencia del campo en planes antiguos sigue válida; no se re-enriquece ni se
   reescribe HTML persistido. La deduplicación por ID permanece igual.
-- Formatter: primer juego con banner válido **y** en Waitlist, respetando orden
+- Formatter (cambio local aún no desplegado): primer juego con banner válido **y** en Waitlist, respetando orden
   de tiers/juegos (no orden de IDs de Waitlist). Sin juego de Waitlist con
   banner válido → no imagen; no se usa otro juego del bundle (decisión del
   usuario 2026-11-02). Colección no decide el banner.
-  Solo una imagen, en primera parte, con footer discreto
-  `Imagen de juego: <título>` escapado; no sugiere portada del bundle.
-- `pack` sigue presupuestando bytes/bloques/imágenes incluyendo la etiqueta;
+  Solo una imagen, en primera parte, sin un pie de título decorativo.
+- `pack` sigue presupuestando bytes/bloques/imágenes de la imagen;
   división solo por límites, sin truncar ni filtrar juegos, repeticiones,
   niveles o enlaces. La imagen puede desplazar un límite entre partes.
   URLs de compra/details y enlaces per-game se conservan exactamente con el
   escape HTML existente. Unidades indivisibles excesivas siguen rechazadas.
 - Cliente Telegram sin cambios: 400 con imagen permite un único fallback.
-  `stripImages` ahora elimina también el footer identificativo asociado;
-  texto/enlaces/contador de parte quedan intactos. Red/timeout/429/400
+  `stripImages` también elimina el pie identificativo de planes antiguos que
+  todavía lo contengan; texto/enlaces/contador de parte quedan intactos.
+  Red/timeout/429/400
   persistente mantienen el tratamiento existente. No entrega exactamente una vez.
 
 ### Maqueta y mediciones exactas
@@ -714,10 +714,10 @@ offline: no descarga los banners oficiales.
 | --- | ---: | ---: | ---: | ---: |
 | 1 con banner | 508 | 8 | 1 | 1 |
 | 2 con banner | 796 | 14 | 1 | 1 |
-| 3 con banner per-game | 1243 | 22 | 1 | 1 |
+| 3 con banner per-game | 1204 | 23 | 1 | 1 |
 | 1 sin banner | 428 | 7 | 0 | 1 |
 | 2 sin banner | 717 | 13 | 0 | 1 |
-| 3 sin banner | 1129 | 20 | 0 | 1 |
+| 3 sin banner | 1139 | 22 | 0 | 1 |
 
 Medidos compilando el runtime real con `compilePreviewRuntime` y
 `buildExamples`, usando `utf8Length/countBlocks/countImages`. Equivalencia

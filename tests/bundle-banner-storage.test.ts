@@ -35,7 +35,7 @@ describe('bundle banner persistence and delivery, offline', () => {
     })();
   });
 
-  it('uses real 400 fallback for a bundle, preserving every text/link/part and removing the image label', async () => {
+  it('uses real 400 fallback for a bundle, preserving every text/link/part and removing the image', async () => {
     const bundle = parseBundles(spec.components.examples['resp.bundles.v1.success'].value)[0]!.bundle!;
     const notice: BundleNotice = { bundle, waitlist: [bundle.tiers[0]!.games[1]!.id], collection: [] };
     const parts = formatBundle(notice);

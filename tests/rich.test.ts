@@ -136,6 +136,11 @@ describe('stripImages', () => {
     expect(countImages(stripImages(html))).toBe(0);
   });
 
+  it('removes the legacy bundle image caption with its image', () => {
+    const html = '<img src="https://cdn.example/a.jpg"/><footer>Imagen de juego: Hades</footer><h3>Bundle</h3>';
+    expect(stripImages(html)).toBe('<h3>Bundle</h3>');
+  });
+
   it('leaves a message without images, and text that only mentions one, as it is', () => {
     const html = '<p>&lt;img src=&quot;x&quot;/&gt; <b>ok</b></p>';
     expect(stripImages(html)).toBe(html);

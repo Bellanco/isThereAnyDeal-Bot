@@ -42,7 +42,7 @@ export function formatBundle(notice: BundleNotice): string[] {
   const hasBanner = (game: BundleGame) => safeImageUrl(game.banner) !== null;
   const imageGame = games.find(game => waitlist.has(game.id.toLowerCase()) && hasBanner(game));
   const image = imageGame
-    ? `<img src="${attr(safeImageUrl(imageGame.banner)!)}"/><footer>Imagen de juego: ${esc(imageGame.title)}</footer>`
+    ? `<img src="${attr(safeImageUrl(imageGame.banner)!)}"/>`
     : '';
   const units: Unit[] = [{ html: image + head(bundle) }];
   bundle.tiers.forEach((tier, tierIndex) => {
@@ -55,7 +55,11 @@ export function formatBundle(notice: BundleNotice): string[] {
       const line = gameLine(game, waitlist, collection);
       units.push(gameIndex === 0
         ? { html: heading + line, joiner: '<hr/>' }
-        : { html: line, opener: `<h4>${esc(`${tierTitle(tier, tierIndex)} (continuación)`)}</h4>` });
+        : {
+          html: line,
+          joiner: '<hr/>',
+          opener: `<h4>${esc(`${tierTitle(tier, tierIndex)} (continuación)`)}</h4>`,
+        });
     });
   });
   const frame: Frame = (body, index, total) =>

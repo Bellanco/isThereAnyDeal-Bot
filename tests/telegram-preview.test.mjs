@@ -92,7 +92,8 @@ describe('Telegram preview, compiled real formatters and client', () => {
     expect(examples[0]).not.toMatch(/Caduca:|Hasta/);
     expect(examples[1]).toContain('<footer>Hasta el 8 de noviembre</footer>');
     expect(examples[1]).not.toContain('Velvet Moon Afterdark');
-    expect(examples[2].startsWith(`<img src="${BUNDLE_GAME_BANNER}"/><footer>Imagen de juego: Nebula Drifters</footer><h3>Constellation Cabinet — Bundle ficticio</h3>`)).toBe(true);
+    expect(examples[2].startsWith(`<img src="${BUNDLE_GAME_BANNER}"/><h3>Constellation Cabinet — Bundle ficticio</h3>`)).toBe(true);
+    expect(examples[2]).not.toContain('Imagen de juego:');
     expect(examples[2]).not.toContain('990001');
     expect(examples[2]).not.toContain('publicado');
     expect(examples[2]).toContain('<footer>Hasta el 15 de noviembre</footer>');
@@ -131,11 +132,11 @@ describe('Telegram preview, compiled real formatters and client', () => {
     }))).toEqual(noBanner ? [
       { bytes: 428, blocks: 7, images: 0 },
       { bytes: 717, blocks: 13, images: 0 },
-      { bytes: 1129, blocks: 20, images: 0 },
+      { bytes: 1139, blocks: 22, images: 0 },
     ] : [
       { bytes: 508, blocks: 8, images: 1 },
       { bytes: 796, blocks: 14, images: 1 },
-      { bytes: 1243, blocks: 22, images: 1 },
+      { bytes: 1204, blocks: 23, images: 1 },
     ]);
   });
 
